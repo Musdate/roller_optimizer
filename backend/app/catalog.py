@@ -18,6 +18,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Callable
 
 import httpx
 
@@ -170,7 +171,16 @@ def _fetch_ladder(client: httpx.Client, name: str) -> list[dict]:
 last_refresh_failures = 0
 
 
-def _fetch_all(previous: list[dict] | None = None) -> list[dict]:
+def _fetch_all(
+    previous: list[dict] | None = None,
+    on_total: Callable[[int], None] | None = None,
+    on_progress: Callable[[int, list[dict]], None] | None = None,
+) -> list[dict]:
+    """`on_total(n)` se llama una vez, apenas se sabe cuántos NOMBRES faltan
+    por escalar (después del listado masivo, antes del loop lento).
+    `on_progress(done, batch)` se llama después de cada nombre resuelto, con
+    el conteo acumulado y los modelos nuevos de ESE nombre (para que quien
+    llama pueda ir mezclando el catálogo en vivo, no solo al terminar)."""
     global last_refresh_failures
     # arranca de lo que ya teníamos: un refresh parcial nunca pierde datos
     miners: dict[str, dict] = {m["id"]: m for m in (previous or [])}
@@ -186,6 +196,8 @@ def _fetch_all(previous: list[dict] | None = None) -> list[dict]:
         # refresh() solo pega a los que faltan y converge en 2–3 pasadas.
         have_base = {m["name"] for m in miners.values() if m["level"] == 1}
         todo = sorted({m["name"] for m in miners.values()} - have_base)
+        if on_total:
+            on_total(len(todo))
 
         def worker(name: str) -> tuple[list[dict], bool]:
             recipes = _fetch_ladder(client, name)
@@ -201,11 +213,15 @@ def _fetch_all(previous: list[dict] | None = None) -> list[dict]:
             return found, False
 
         with ThreadPoolExecutor(max_workers=_CONCURRENCY) as pool:
+            done = 0
             for batch, failed in pool.map(worker, todo):
                 if failed:
                     failures += 1
                 for m in batch:
                     miners[m["id"]] = m
+                done += 1
+                if on_progress:
+                    on_progress(done, batch)
 
     last_refresh_failures = failures
     return sorted(miners.values(), key=lambda m: (m["name"], m["level"]))
@@ -244,6 +260,12 @@ class Catalog:
         self._disk_mtime: float = 0.0
         self._refreshing = False
         self._refresh_lock = threading.Lock()
+        # nombres resueltos / total de nombres a resolver en el refresh en
+        # curso (0/0 cuando no hay refresh corriendo). Se sabe recién
+        # después del listado masivo -> total arranca en 0 y salta al valor
+        # real apenas se conoce.
+        self._progress_done = 0
+        self._progress_total = 0
         self._load_from_disk()
 
     def _load_from_disk(self) -> bool:
@@ -281,12 +303,28 @@ class Catalog:
 
     def refresh(self) -> None:
         """Bloqueante. Descarga completa (~15-20 min por el rate-limit).
-        No-op si ya hay otro refresh en curso."""
+        No-op si ya hay otro refresh en curso. `self._miners` (y por lo
+        tanto `missing_base`/`all()`) se va actualizando EN VIVO a medida
+        que cada nombre termina, no recién al final -- antes quedaba
+        pegado al valor de antes de empezar durante los 15-20 min enteros."""
         if not self._refresh_lock.acquire(blocking=False):
             return
         self._refreshing = True
+        self._progress_done = 0
+        self._progress_total = 0
+        merged: dict[str, dict] = {m["id"]: m for m in self._miners}
+
+        def on_total(n: int) -> None:
+            self._progress_total = n
+
+        def on_progress(done: int, batch: list[dict]) -> None:
+            for m in batch:
+                merged[m["id"]] = m
+            self._miners = list(merged.values())
+            self._progress_done = done
+
         try:
-            self._miners = _fetch_all(previous=self._miners)
+            self._miners = _fetch_all(previous=self._miners, on_total=on_total, on_progress=on_progress)
             self._fetched_at = time.time()
             _write_cache(self._miners)
             try:
@@ -295,6 +333,8 @@ class Catalog:
                 pass
         finally:
             self._refreshing = False
+            self._progress_done = 0
+            self._progress_total = 0
             self._refresh_lock.release()
 
     def refresh_async(self) -> bool:
@@ -305,11 +345,35 @@ class Catalog:
         return True
 
     @property
+    def progress(self) -> dict:
+        """{done, total} nombres resueltos / a resolver del refresh en
+        curso. {0, 0} si no hay ninguno corriendo."""
+        return {"done": self._progress_done, "total": self._progress_total}
+
+    @property
     def missing_base(self) -> int:
         """Nombres sin su nivel base (1). Indica un fetch incompleto."""
         names = {m["name"] for m in self._miners}
         have_base = {m["name"] for m in self._miners if m["level"] == 1}
         return len(names - have_base)
+
+    def check_for_updates(self) -> dict:
+        """Fetch rápido (solo el listado masivo, sin la escalera por nombre
+        que es lo lento) para saber cuántos nombres distintos hay AHORA en
+        la API de RollerCoin vs. los que ya tenemos, sin arrancar el
+        refresh completo (~15-20 min). No toca el catálogo ni compite con
+        `refresh()` -- se puede llamar aunque haya uno en curso."""
+        with httpx.Client(timeout=30, headers={"User-Agent": "optimizador-roller/0.1"}) as client:
+            results = _fetch_results(client)
+        remote_names = {r["resultItemName"] for r in results}
+        local_names = {m["name"] for m in self._miners}
+        new_names = sorted(remote_names - local_names)
+        return {
+            "remote_names": len(remote_names),
+            "local_names": len(local_names),
+            "new_count": len(new_names),
+            "new_names": new_names[:50],
+        }
 
     def all(self) -> list[dict]:
         self.ensure()

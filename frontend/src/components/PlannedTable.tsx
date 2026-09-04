@@ -1,26 +1,50 @@
+import type { DragEvent } from "react";
 import { useStore, selectPlannedList, sortInventory } from "../store";
 import { bpToPct, formatPower, formatExactGh } from "../power";
 import { totalsFor } from "../calc";
 import MinerSprite from "./MinerSprite";
-import LevelBadge from "./LevelBadge";
+import { ROOM_DND_MIME } from "./RoomRacks";
+import { useDragState } from "../dragState";
+import type { CatalogMiner } from "../types";
 
 export default function PlannedTable() {
   const rawList = useStore(selectPlannedList);
   const invSort = useStore((s) => s.invSort);
   const setPlanned = useStore((s) => s.setPlanned);
+  const clearPlanned = useStore((s) => s.clearPlanned);
+  const addPlanned = useStore((s) => s.addPlanned);
+  const setDraggingWidth = useDragState((s) => s.setWidth);
 
   const list = sortInventory(rawList, invSort);
   const totals = totalsFor(list.map((it) => ({ item: it, count: it.planned ?? 0 })));
 
+  const acceptCatalogDrop = (e: DragEvent) => {
+    e.preventDefault();
+    setDraggingWidth(null);
+    try {
+      const raw = e.dataTransfer.getData(ROOM_DND_MIME);
+      if (!raw) return;
+      const p = JSON.parse(raw) as { source: string; miner?: CatalogMiner };
+      if (p.source === "catalog" && p.miner) addPlanned(p.miner, 1);
+    } catch {
+      // dato de drag no reconocido, ignorar
+    }
+  };
+
   return (
-    <div className="panel">
+    <div className="panel" onDragOver={(e) => e.preventDefault()} onDrop={acceptCatalogDrop}>
       <div className="row between">
         <h2>Nueva adquisición</h2>
-        {list.length > 0 && (
-          <span className="pill" title="Se suman al inventario al optimizar la sala">
-            +{totals.miners} mineros
-          </span>
-        )}
+        <div className="row">
+          {list.length > 0 && (
+            <span className="pill" title="Se suman al inventario al optimizar la sala">
+              +{totals.miners} mineros
+            </span>
+          )}
+          <button className="tiny" onClick={clearPlanned} disabled={!list.length}>
+            vaciar
+          </button>
+        </div>
       </div>
 
       {list.length === 0 ? (
@@ -49,10 +73,10 @@ export default function PlannedTable() {
                         url={it.image ?? ""}
                         width={it.width}
                         size={28}
+                        level={it.level}
                         title={`${it.width} celda${it.width > 1 ? "s" : ""}`}
                       />
                       <span className="name-row">
-                        <LevelBadge level={it.level} />
                         {it.name || <span className="muted">custom</span>}
                       </span>
                     </div>

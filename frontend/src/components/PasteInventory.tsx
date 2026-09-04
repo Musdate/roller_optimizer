@@ -4,7 +4,6 @@ import type { ParsedItem } from "../api";
 import { useStore } from "../store";
 import { bpToPct, formatPower } from "../power";
 import MinerSprite from "./MinerSprite";
-import LevelBadge from "./LevelBadge";
 
 export default function PasteInventory({ onDone }: { onDone?: () => void }) {
   const merge = useStore((s) => s.mergeParsedInventory);
@@ -95,9 +94,8 @@ export default function PasteInventory({ onDone }: { onDone?: () => void }) {
                   <tr key={it.id}>
                     <td>
                       <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-                        <MinerSprite url={it.image} width={it.width} size={24} />
+                        <MinerSprite url={it.image} width={it.width} size={24} level={it.level} />
                         <span className="name-row">
-                          <LevelBadge level={it.level} />
                           {it.name}
                           {!it.matched && <span className="tag buy">sin catálogo</span>}
                         </span>

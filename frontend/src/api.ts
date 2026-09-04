@@ -19,6 +19,16 @@ export function fetchCatalog(search = "", limit = 60): Promise<CatalogMiner[]> {
   return fetch(`${BASE}/catalog?${q}`).then((r) => json<CatalogMiner[]>(r));
 }
 
+/** Datos actuales del catálogo para reconciliar ítems ya guardados en el
+ *  inventario: al agregar un minero se copian sus datos (imagen, poder…) tal
+ *  como estaban en ese momento, y quedan congelados aunque el catálogo se
+ *  corrija después (p. ej. el saneo de apóstrofos en las URLs de imagen). */
+export function fetchCatalogByIds(ids: string[]): Promise<CatalogMiner[]> {
+  if (!ids.length) return Promise.resolve([]);
+  const q = new URLSearchParams({ ids: ids.join(",") });
+  return fetch(`${BASE}/catalog/by-ids?${q}`).then((r) => json<CatalogMiner[]>(r));
+}
+
 export function refreshCatalog(): Promise<{
   ok: boolean;
   started: boolean;
@@ -27,6 +37,18 @@ export function refreshCatalog(): Promise<{
   missing_base: number;
 }> {
   return fetch(`${BASE}/catalog/refresh`, { method: "POST" }).then((r) => json(r));
+}
+
+/** Chequeo rápido (~segundos) contra la API de RollerCoin: cuántos nombres
+ *  de minero hay ahora vs. los que ya tenemos, sin arrancar la recarga
+ *  completa (~15-20 min). */
+export function checkCatalog(): Promise<{
+  remote_names: number;
+  local_names: number;
+  new_count: number;
+  new_names: string[];
+}> {
+  return fetch(`${BASE}/catalog/check`).then((r) => json(r));
 }
 
 export interface ParsedItem {

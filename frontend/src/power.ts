@@ -25,7 +25,7 @@ export function parsePower(input: string): bigint {
   s = s.replace(/h\/s$|hs$/i, "").replace(/\/s$/i, "");
   s = s.replace(/,/g, ".");
   const m = s.match(/^([0-9]*\.?[0-9]+)(zh|eh|ph|th|gh|z|e|p|t|g)?$/i);
-  if (!m) throw new Error(`No se pudo interpretar "${input}" (usá GH, TH, PH, EH o ZH)`);
+  if (!m) throw new Error(`No se pudo interpretar "${input}" (usa GH, TH, PH, EH o ZH)`);
   const [, numStr, unit] = m;
   const factor = unit ? SUFFIX[unit] : 1n;
   const [intPart, fracPart = ""] = numStr.split(".");
@@ -34,23 +34,34 @@ export function parsePower(input: string): bigint {
   return (BigInt(digits) * factor) / 10n ** BigInt(fracPart.length);
 }
 
-/** BigInt en GH/s -> "1.500 PH/s". Unidad mínima GH. */
+/** BigInt en GH/s -> "1.500 PH/s". Unidad mínima GH. Siempre 3 decimales
+ *  fijos (sin recortar ceros de sobra: "10.230 EH/s", no "10.23 EH/s") y
+ *  redondeando al decimal más cercano en vez de truncar: 49.998990407 EH ->
+ *  "49.999", no "49.998". */
 export function formatPower(value: bigint, decimals = 3): string {
   if (value < 0n) return "-" + formatPower(-value, decimals);
-  if (value === 0n) return "0 GH/s";
 
   let chosen = UNITS[0];
   for (const u of UNITS) {
     if (value >= u.gh) chosen = u;
   }
   const divisor = chosen.gh;
-  const whole = value / divisor;
+  let whole = value / divisor;
   const remainder = value % divisor;
-  const fracDigits = (remainder * 10n ** BigInt(decimals)) / divisor;
-  const frac = fracDigits.toString().padStart(decimals, "0").replace(/0+$/, "");
 
-  if (whole === 0n && frac === "") return "~0 GH/s";
-  return frac ? `${whole}.${frac} ${chosen.sym}/s` : `${whole} ${chosen.sym}/s`;
+  const scale = 10n ** BigInt(decimals);
+  const scaled = remainder * scale;
+  let fracDigits = scaled / divisor;
+  const fracRemainder = scaled % divisor;
+  if (fracRemainder * 2n >= divisor) fracDigits += 1n; // mitad para arriba
+  if (fracDigits >= scale) {
+    // el redondeo "carry" a la parte entera (p. ej. x.9996 con 3 decimales)
+    fracDigits -= scale;
+    whole += 1n;
+  }
+
+  const frac = fracDigits.toString().padStart(decimals, "0");
+  return `${whole}.${frac} ${chosen.sym}/s`;
 }
 
 /** Separador de miles. */

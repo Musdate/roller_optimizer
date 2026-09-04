@@ -96,11 +96,14 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transparent); }
 
-/* Cabeceras de tabla fijas al hacer scroll dentro de .scroll */
+/* Cabeceras de tabla fijas al hacer scroll dentro de .scroll.
+   z-index más alto que .sprite-rarity (z-index:2): si no, el ícono de
+   rareza de la primera fila (que sobresale con top negativo) terminaba
+   pintándose por encima del header sticky al hacer scroll. */
 .scroll thead th {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 3;
   background: var(--panel);
   box-shadow: inset 0 -1px 0 var(--border);
 }
@@ -124,10 +127,38 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
 
 .col-btns { display: flex; flex-direction: column; gap: 4px; flex: none; }
 
-.stat-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0; }
+.stat-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0; align-items: baseline; }
 .stat { display: flex; flex-direction: column; }
 .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
 .stat .v { font-size: 16px; font-variant-numeric: tabular-nums; }
+
+/* Resumen de la sala: poder final como card destacada + el resto como
+   detalle chico al lado, en vez de todos los stats sueltos en una misma
+   fila (donde uno grande al lado de dos chicos quedaba desprolijo). */
+.room-summary { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 10px; }
+.stat-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 10px;
+}
+.stat-hero .k {
+  font-size: 11px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.stat-hero .v {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.room-summary .stat-row { margin: 0; }
 
 .bar { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
 .bar > span { display: block; height: 100%; background: var(--good); }
@@ -160,11 +191,40 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
   justify-content: center;
 }
 .sprite {
+  position: relative;
   flex: none;
   background-repeat: no-repeat;
   background-position: 0% 0%;
   background-size: 600% 100%; /* 6 frames de ancho */
 }
+/* Cuando la URL del catálogo es correcta pero el archivo no existe en el
+   CDN de terceros (p. ej. "Corsair's Oath"): un cuadro discreto en vez de
+   dejar el ícono de imagen rota del navegador. */
+.sprite-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-2);
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-weight: 700;
+}
+/* Ícono de rareza superpuesto en la esquina superior izq. del minero
+   (en toda la app: tablas, catálogo, sala). Va anclado al frame visible
+   (.sprite), no a la caja de ancho fijo (.sprite-box) que siempre reserva
+   espacio para 2 celdas -- si no, en un minero de 1 celda quedaba pegado
+   al borde de esa caja ancha, lejos del dibujo real. Nivel 1/común no trae
+   ícono (ver LevelBadge). */
+.sprite-rarity {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  z-index: 2;
+  pointer-events: none;
+  line-height: 0;
+}
+.sprite-rarity .lvl-badge { height: 11px; }
 .sprite-box:hover .sprite {
   animation: sprite-run 0.7s steps(6, jump-none) infinite;
 }
@@ -173,3 +233,168 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
 }
 .list-item .name { flex: 1; min-width: 0; }
 .list-item .name .sub { font-size: 12px; color: var(--muted); }
+
+/* El panel de la sala respeta el mismo límite que las racks: no se achica
+   más allá de lo que necesitan 4 racks fijas por fila (496px de fila +
+   padding del grid 4px + padding del panel 28px), si no las racks quedan
+   desbordando un panel que siguió angostándose atrás. Por debajo de esto,
+   desborda la página entera (scroll horizontal) en vez de seguir achicando. */
+.panel-room { min-width: 528px; }
+
+/* Sala visual: sin fondo propio, solo los racks flotando. */
+.room-racks-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 10px 2px 4px;
+  background: transparent;
+}
+/* Sin gap uniforme: los racks van de a pares pegados (sin separación entre
+   ellos) y el gap solo aparece ENTRE pares. row-gap sí queda uniforme, para
+   separar las filas cuando el responsive de abajo hace que se envuelvan.
+   justify-content:center en las dos filas -- la de 8 y la de 4 -- para que
+   toda la sala quede centrada como un solo bloque, no la de 4 sola. */
+.room-racks-row { display: flex; flex-wrap: wrap; justify-content: center; row-gap: 8px; column-gap: 0; }
+.rack:nth-child(even):not(:last-child) { margin-right: 8px; }
+
+/* aspect-ratio (fijado desde RACK_IMG_RATIO en el componente) reserva la
+   altura del rack sin depender de que la imagen llegue a cargar: si el
+   <img> falla (red, ad-blocker) los slots superpuestos siguen teniendo el
+   tamaño y la posición correctos y se pueden arrastrar igual.
+   Ancho pensado para que las 8 racks de la fila de arriba entren en una
+   sola línea dentro del panel (~1036px útiles) sin deformar el PNG. */
+/* Tamaño SIEMPRE fijo (nunca se achica con la ventana): flex:none ya le da
+   flex-shrink:0. Por debajo del ancho mínimo que necesitan 4 racks + gaps
+   simplemente no hay más lugar y el contenido desborda -- ese es el límite. */
+.rack { position: relative; width: 120px; flex: none; user-select: none; }
+/* Pasados ~1050px de ventana ya no entran cómodas las 8 racks (120px c/u +
+   pares) en una sola línea -> se limita el ancho de la fila para que el
+   wrap ocurra siempre justo después del 4º rack (grupos parejos de 4: 3
+   filas en total), en vez de un wrap "orgánico" que envolvería en 5, 6 o 7
+   según el ancho exacto disponible. El tamaño del rack no cambia, solo
+   dónde corta la línea. 4*120px + 2*8px (peor caso, ver nota de abajo). */
+/* width fijo (no max-width): así no vuelve a envolver en grupos de menos
+   de 4 si la ventana sigue achicándose -- se queda en 4 por fila y lo que
+   sobra desborda (scroll horizontal), no reduce más. Ese es el límite. */
+@media (max-width: 1060px) {
+  /* margin:auto centra la caja de la fila (ya de ancho fijo) dentro del
+     panel; justify-content:center por sí solo solo centra el CONTENIDO
+     adentro de esa caja, no la caja misma dentro del panel. */
+  .room-racks-row { width: 496px; margin: 0 auto; }
+}
+.rack-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, .45));
+}
+.rack-shelves {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  top: 8%;
+  bottom: 6%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+/* el offset va en la fila (rack-shelf), no en el slot: así la caja del
+   estante y la del slot se mueven juntas y calzan al inspeccionar.
+   Las filas son % de alto dentro de .rack-shelves (que a su vez sale de %
+   sobre .rack), así que cada una redondea a píxel distinto: el navegador
+   no reparte el space-between con exactitud subpíxel. Se corrige a mano
+   por fila en vez de perseguir un valor único "perfecto". */
+.rack-shelf { position: relative; top: -8px; left: 1px; display: flex; gap: 3px; height: 23%; margin: 0 10px; border-radius: 3px; transition: background .12s, outline-color .12s; }
+.rack-shelf:nth-child(1) { top: -11px; }
+.rack-shelf:nth-child(2) { top: -10px; }
+.rack-shelf:nth-child(3) { top: -9px; }
+/* Resalte de estante libre completo mientras se arrastra un minero de 2
+   celdas: se pinta en la fila (no en cada slot) para que las 2 celdas se
+   vean como una sola celda doble, sin el hueco del gap entre medio. */
+.rack-shelf.shelf-target {
+  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.rack-slot {
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  background-clip: content-box;
+  transition: background .12s, outline-color .12s, transform .12s;
+}
+/* Sin drag en curso: invisible, solo existe como área de drop. */
+.rack-slot.empty {
+  background-color: transparent;
+  outline: none;
+}
+/* Mientras se arrastra un minero: marca todos los huecos donde encaja
+   (compatibles con su ancho), no solo el que está bajo el cursor. Outline
+   grueso + offset hacia afuera + glow: el 1px dashed hacia adentro que usa
+   el estado "empty" normal se pierde contra la textura del estante. */
+.rack-slot.empty.drag-target {
+  background-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.rack-slot.filled {
+  background-color: rgba(75, 75, 75, .25);
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
+  cursor: grab;
+}
+.rack-slot.filled:hover { outline-color: var(--accent); transform: translateY(-1px); }
+.rack-slot.drag-over { outline: 2px solid var(--accent); background-color: color-mix(in srgb, var(--accent) 25%, transparent); }
+/* Minero con la card de info abierta (ver .room-selected): se queda
+   marcado mientras la card sigue abierta, para ubicarlo entre el resto. */
+.rack-slot.filled.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.rack-slot .sprite-box { pointer-events: none; }
+/* En la sala, a diferencia de las tablas, la animación corre siempre (no
+   solo al pasar el mouse): son los mineros "puestos", no una vista previa.
+   Usa un ciclo propio de 4 frames (en vez de los 6 de la hoja completa):
+   los frames 5 y 6 traen un borde verde dibujado en el propio sprite de
+   RollerCoin que titila feo en loop continuo, así que se saltean del todo
+   en vez de mostrarlos. Keyframes separado para no tocar el hover de las
+   tablas, que sigue usando la hoja completa de 6 frames. */
+.rack-slot .sprite-box .sprite { animation: sprite-run-4 0.7s steps(4, jump-none) infinite; }
+@keyframes sprite-run-4 {
+  to { background-position-x: 60%; } /* frame 4 de 6 (0%,20%,40%,60%) */
+}
+
+/* Card de info del minero clickeado en la sala (en vez de quitarlo al
+   toque): sprite + datos + botón para quitarlo recién ahí. */
+.room-selected {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px auto;
+  width: max-content;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.room-selected-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.room-selected-info .muted { font-size: 12px; }
+
+.room-bench-drop {
+  margin-top: 14px;
+  padding: 10px;
+  text-align: center;
+  font-size: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.room-bench-drop.drag-over { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 12%, transparent); }

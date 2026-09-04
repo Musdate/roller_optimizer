@@ -2,7 +2,6 @@ import { useState } from "react";
 import { bpToPct, formatPower, formatExactGh } from "../power";
 import { useStore } from "../store";
 import MinerSprite from "./MinerSprite";
-import LevelBadge from "./LevelBadge";
 import type { OptimizeResponse } from "../types";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -58,28 +57,12 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
           </span>
         </div>
         <div className="stat">
-          <span className="k">Objetivo</span>
-          <span className="v">{formatPower(BigInt(r.target_final_power))}</span>
-        </div>
-        <div className="stat">
-          <span className="k">Falta</span>
-          <span className="v" title={formatExactGh(BigInt(r.headroom))}>
-            {formatPower(BigInt(r.headroom))}
-          </span>
-        </div>
-        <div className="stat">
-          <span className="k">Bonus usado</span>
-          <span className="v">+{bpToPct(r.bonus_bp)}</span>
-        </div>
-        <div className="stat">
-          <span className="k">Poder bruto</span>
+          <span className="k">Mineros</span>
           <span className="v">{formatPower(BigInt(r.raw_power))}</span>
         </div>
         <div className="stat">
-          <span className="k">Slots / celdas</span>
-          <span className="v">
-            {r.slots_used} / {r.cells_used}
-          </span>
+          <span className="k">Bonus</span>
+          <span className="v">+{bpToPct(r.bonus_bp)}</span>
         </div>
       </div>
 
@@ -127,9 +110,9 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                       url={inventory[p.id]?.image ?? ""}
                       width={p.width}
                       size={28}
+                      level={p.level}
                     />
                     <span className="name-row">
-                      <LevelBadge level={p.level} />
                       {p.name || <span className="muted">custom</span>}
                       {isNew && <span className="tag new">Nuevo</span>}
                       {toBuy > 0 && <span className="tag buy">comprar {toBuy}</span>}
@@ -162,9 +145,8 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                 <tr key={it.id}>
                   <td>
                     <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-                      <MinerSprite url={it.image ?? ""} width={it.width} size={28} />
+                      <MinerSprite url={it.image ?? ""} width={it.width} size={28} level={it.level} />
                       <span className="name-row">
-                        <LevelBadge level={it.level} />
                         {it.name || <span className="muted">custom</span>}
                         <span className="tag remove">Quitar de sala</span>
                       </span>

@@ -42,7 +42,9 @@ def api_root() -> dict:
         "endpoints": [
             "/api/health",
             "/api/catalog",
+            "/api/catalog/by-ids",
             "/api/catalog/refresh",
+            "/api/catalog/check",
             "/api/inventory/parse",
             "/api/optimize",
         ],
@@ -52,6 +54,7 @@ def api_root() -> dict:
 @app.get("/api/health")
 def health() -> dict:
     rows = catalog.all()  # recarga el seed si cambió en disco
+    progress = catalog.progress
     return {
         "ok": True,
         "catalog_size": len(rows),
@@ -59,6 +62,10 @@ def health() -> dict:
         "catalog_stale": catalog.stale,
         "catalog_missing_base": catalog.missing_base,
         "catalog_refreshing": catalog.refreshing,
+        # nombres resueltos / a resolver del refresh en curso (0/0 si no
+        # hay ninguno corriendo, o mientras se espera el listado masivo).
+        "catalog_progress_done": progress["done"],
+        "catalog_progress_total": progress["total"],
     }
 
 
@@ -86,6 +93,33 @@ def get_catalog(
     ]
 
 
+@app.get("/api/catalog/by-ids", response_model=list[CatalogMinerOut])
+def get_catalog_by_ids(ids: str = Query(default="")) -> list[CatalogMinerOut]:
+    """Datos actuales del catálogo para un set de ids (coma-separados), sin
+    límite de `search`. Para volver a sincronizar ítems ya guardados en el
+    inventario del cliente (imagen/poder/bonus quedan congelados en el
+    momento en que se agregaron -- si el catálogo se corrigió después, p.ej.
+    el saneo de apóstrofos en las URLs de imagen, el inventario ya guardado
+    sigue apuntando a la URL vieja rota hasta que se resincroniza)."""
+    id_set = {i.strip() for i in ids.split(",") if i.strip()}
+    if not id_set:
+        return []
+    rows = [m for m in catalog.all() if m["id"] in id_set]
+    return [
+        CatalogMinerOut(
+            id=r["id"],
+            name=r["name"],
+            level=r["level"],
+            api_level=r.get("api_level", 0),
+            power=str(r["power"]),
+            bonus_bp=r["bonus_bp"],
+            width=r["width"],
+            image=r["image"],
+        )
+        for r in rows
+    ]
+
+
 @app.post("/api/catalog/refresh")
 def refresh_catalog() -> dict:
     started = catalog.refresh_async()
@@ -96,6 +130,16 @@ def refresh_catalog() -> dict:
         "refreshing": catalog.refreshing,
         "missing_base": catalog.missing_base,
     }
+
+
+@app.get("/api/catalog/check")
+def check_catalog() -> dict:
+    """Chequeo rápido (~segundos, no ~15 min) de cuántos mineros nuevos hay
+    en la API de RollerCoin antes de decidir si vale la pena recargar todo."""
+    try:
+        return catalog.check_for_updates()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"no se pudo chequear el catálogo: {exc}") from exc
 
 
 @app.post("/api/inventory/parse", response_model=ParseInventoryResponse)

@@ -71,6 +71,33 @@ def test_apostrophe_variants_match():
     assert de and de[0].matched and de[0].quantity == 2
 
 
+def test_first_block_missing_level_number_still_parses_name():
+    # Al copiar solo una parte del inventario, el primer minero pegado a
+    # veces no arrastra su línea de nivel de arriba (a diferencia de los
+    # que le siguen, que sí la tienen antes del nombre). El "1" de
+    # "Quantity: 1" no debe confundirse con esa línea de nivel faltante y
+    # pisar el nombre real con lo que venga después ("Can be sold").
+    txt = """Crimson Reflection
+Set
+Size:
+2 Cells
+Power
+17.700 Ph/s
+Bonus
+8 %
+Quantity:
+1
+Can be sold
+Miner details
+"""
+    res = parse_inventory(txt, _CATALOG)
+    assert len(res.items) == 1
+    it = res.items[0]
+    assert it.matched
+    assert it.id == "cr4"
+    assert it.quantity == 1
+
+
 def test_unmatched_is_kept_as_custom():
     txt = """
 2

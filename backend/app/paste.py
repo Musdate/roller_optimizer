@@ -32,7 +32,7 @@ import re
 from dataclasses import dataclass, field
 
 _NOISE = {
-    "set", "can't be sold", "cant be sold", "miner details", "open", "close",
+    "set", "can't be sold", "cant be sold", "can be sold", "miner details", "open", "close",
     "sell", "merge", "move", "info", "details", "new",
 }
 
@@ -133,13 +133,20 @@ def _parse_chunk(chunk: str) -> ParsedMiner | None:
     if len(lines) < 4:
         return None
 
-    # nivel = primer entero suelto; el nombre es la línea siguiente
+    # nivel = primer entero suelto, pero SOLO antes de que aparezca algún
+    # label conocido (Size/Power/Bonus/Quantity...): si no, cuando al bloque
+    # le falta su línea de nivel (pasa con el primer minero de una
+    # selección parcial, que a veces no arrastra el número de arriba de
+    # todo), el "1" de "Quantity: 1" quedaba confundido con el nivel y el
+    # nombre real terminaba pisado por lo que viniera después de esa línea.
+    known_labels = {"size", "power", "hashpower", "hash power", "bonus", "quantity", "amount", "count"}
+    label_idx = next((i for i, ln in enumerate(lines) if ln.lower().rstrip(":") in known_labels), len(lines))
     level = 0
     name = ""
-    for i, ln in enumerate(lines):
+    for i, ln in enumerate(lines[:label_idx]):
         if re.fullmatch(r"\d{1,2}", ln):
             level = int(ln)
-            if i + 1 < len(lines):
+            if i + 1 < label_idx:
                 name = lines[i + 1]
             break
     if not name:
