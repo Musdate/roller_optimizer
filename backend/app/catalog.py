@@ -411,15 +411,19 @@ def fetch_user_room(user_id: str) -> dict:
 
     Devuelve `{"items": [...], "room_slots": [...]}`:
       - `items`: 1 dict por (id, nivel) distinto con `count` = copias
-        puestas, ordenado de mayor a menor cantidad.
+        puestas, ordenado de mayor a menor cantidad -- de TODAS las salas
+        físicas que tenga la cuenta, así que el poder siempre da bien
+        aunque haya más de una.
       - `room_slots`: 96 celdas (mismo layout que `ROOM1_CELLS` del
         frontend) con el id puesto en cada una, replicando el orden real
-        del juego -- racks en orden de lectura (arriba-izq a abajo-der,
-        según `racks[].placement.x/y`) y, dentro de cada rack, el mismo
-        estante/lado (`miners[].placement.x/y`) que en RollerCoin. Si la
-        cuenta real tiene más de 12 racks (más de una sala física), los
-        que sobran no entran en esta vista (`items[].count` sigue siendo
-        el total real, usado para el poder -- solo el dibujo se recorta).
+        del juego -- pero solo de la PRIMERA sala física (`rooms[0]`, la
+        que el juego llama "Sala 1"). Los racks de esa sala se ordenan en
+        orden de lectura (arriba-izq a abajo-der, según
+        `racks[].placement.x/y`) y, dentro de cada rack, el mismo
+        estante/lado (`miners[].placement.x/y`) que en RollerCoin. Los
+        mineros puestos en una 2ª/3ª sala física no entran en el dibujo
+        (nuestra vista visual hoy solo cubre una sala), pero sí siguen
+        contados en `items[].count`.
 
     Sin reintentos para un `userId` inexistente: la API devuelve 500 (no
     404), y reintentarlo como si fuera un error transitorio del servidor
@@ -447,10 +451,23 @@ def fetch_user_room(user_id: str) -> dict:
     except json.JSONDecodeError as exc:
         raise RoomSyncError("respuesta inválida de la API de RollerCoin") from exc
 
-    # orden de lectura de los racks: fila (y) y luego columna (x), como se
-    # ven en el juego -- la API no manda un "índice" de rack, solo su (x, y).
+    # las coordenadas (x, y) de cada rack son relativas a SU sala -- una
+    # cuenta con 2+ salas físicas puede perfectamente tener un rack en
+    # (0, 0) en cada una. Sin filtrar por sala antes de ordenar, los racks
+    # de todas las salas quedarían mezclados en una sola lista (y los
+    # primeros 12 que "ganen" el orden podrían ser una mezcla arbitraria de
+    # varias salas reales, no una sola). Se elige la primera sala física
+    # (`rooms[0]`, la "Sala 1" del juego) y solo se posicionan sus racks.
+    all_rooms = body.get("rooms") or []
+    room1_id = (all_rooms[0] or {}).get("_id") if all_rooms else None
+    room_racks = body.get("racks") or []
+    if room1_id is not None:
+        room_racks = [rk for rk in room_racks if (rk.get("placement") or {}).get("user_room_id") == room1_id]
+
+    # orden de lectura de los racks de esa sala: fila (y) y luego columna
+    # (x), como se ven en el juego -- la API no manda un "índice" de rack.
     racks = sorted(
-        body.get("racks") or [],
+        room_racks,
         key=lambda rk: ((rk.get("placement") or {}).get("y", 0), (rk.get("placement") or {}).get("x", 0)),
     )
     rack_index = {rk["_id"]: i for i, rk in enumerate(racks) if rk.get("_id")}
