@@ -97,20 +97,85 @@ Entre todas las combinaciones válidas se elige, **en este orden**:
 > (los mineros de bonus alto quedan libres para otras salas/juegos); y como
 > desempate, quedarse con más poder bruto.
 
-### 5.4 Límite de mineros (Salas)
+### 5.4 Límite (Salas → celdas)
 
-- La UI pide el **nº de salas** (1–4). Mineros permitidos = `48 + (salas−1)·24`
-  → 1 sala = **48**, 2 = **72**, 3 = **96**, 4 = **120**. (1ª sala 8×6 celdas;
-  cada sala extra 8×3.)
-- Es un **máximo**, no hay que llenarlo. El backend recibe `max_slots` ya
-  calculado.
-- **Modo de conteo**: siempre **`miners`** (`Σ 1 ≤ max`). El backend soporta
-  `slot_mode: "cells"` (`Σ width ≤ max`, la grilla real) pero no está expuesto.
-  ⚠️ Casi todos los mineros de merge son `width 2`: en RollerCoin real ocupan 2
-  celdas, así que una sala de 48 celdas entra ~24 mineros width-2, no 48. La app
-  usa la convención "1 minero = 1 slot" a pedido del usuario.
+- La UI pide el **nº de salas** (1–4). Celdas totales = `96 + (salas−1)·144`
+  (1ª sala 96, cada sala a partir de la 2ª aporta 144)
+  → 1 sala = **96**, 2 = **240**, 3 = **384**, 4 = **528**.
+- El label es solo "Salas" (sin el nº de celdas).
+- Se usa **`slot_mode: "cells"`**: `Σ use[m]·width[m] ≤ celdas`. Un minero ocupa
+  `width` celdas (casi todos los de merge son `width 2`). Se comprobó que contar
+  celdas **no** afecta el rendimiento del solver (mismos tiempos que contar
+  mineros).
+- Es un **máximo**, no hay que llenarlo.
 - **Poder objetivo (UI)**: input numérico + selector **PH/s, EH/s, ZH/s**.
-  `time_limit_s` fijo en 8 s (no expuesto).
+  `time_limit_s` fijo en **30 s** (no expuesto; el backend lo parte en 2 pasadas
+  de 15 s). Mientras corre, el botón muestra `optimizando sala… Ns / máx 30s`.
+  No se muestra la conversión de unidades debajo del input.
+
+### 5.5 "En sala" vs "Mi inventario" (solo UI, no afecta al optimizador)
+
+- Cada modelo del inventario tiene, además de `quantity` (cuántas copias tengo),
+  un campo `inRoom` (cuántas de esas copias tengo **puestas en la sala ahora
+  mismo**), `0 ≤ inRoom ≤ quantity`. Persistido en `localStorage`.
+- Panel **"En sala"**: filas con `inRoom > 0`; muestra poder/bonus/final de lo
+  colocado y **celdas usadas / capacidad** (`roomsToCells(salas)`), en rojo si se
+  pasa.
+- Panel **"Mi inventario"**: filas con `quantity − inRoom > 0` (copias
+  disponibles fuera de la sala). Un modelo con todas sus copias en la sala
+  desaparece de aquí; se saca desde "En sala" bajando su contador.
+- Las cabeceras de las tablas quedan fijas (`position: sticky`) al hacer scroll.
+- **Exportar / importar** (botones arriba del todo, junto al título): guardan y
+  restauran **todo** el estado en un JSON `{ version, rooms, inventory: [...] }`
+  — cada ítem lleva `quantity`, `inRoom` y `planned`, así que cubre sala,
+  inventario y nueva adquisición. Importar **reemplaza** el estado actual (pide
+  confirmación). Se acepta también el formato viejo (array plano = solo
+  inventario).
+
+### 5.6 "Nueva adquisición" (mineros que planeo obtener)
+
+- Campo `planned` por modelo: copias que **planeo adquirir** pero aún no tengo.
+  Un modelo puede ser solo planeado (`quantity: 0, planned: n`) — no aparece en
+  "Mi inventario" ni en "En sala", solo en el panel **"Nueva adquisición"**.
+  Se añade desde el catálogo con el botón **"nuevo"**.
+- **Al optimizar**, el inventario que se envía usa copias efectivas
+  `quantity + planned` (`selectOptimizeList`). O sea, el optimizador razona como
+  si ya tuvieras lo planeado.
+
+### 5.7 Resultado: diff contra la sala actual
+
+Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
+
+- Cada pick que **no estaba** en la sala lleva tag verde **"Nuevo"**.
+- Un pick cuyo `count` supera las copias que tengo (`quantity`) lleva tag ámbar
+  **"comprar N"** (N = `count − quantity`, sale de lo planeado).
+- Abajo, sección **"Sale de la sala"**: modelos con `inRoom > 0` que no están en
+  ningún pick → tag rojo **"Quitar de sala"**.
+- Botón **"usar como sala"**: `applyRoom(counts)` — fija `inRoom = count` de cada
+  pick (0 para el resto) y, si `count > quantity`, sube `quantity` absorbiendo de
+  `planned`. Si la sala ya coincide con el resultado, en vez del botón se muestra
+  **"✓ es tu sala actual"**.
+- La tabla del resultado permite **seleccionar 1 fila** (clic) solo para
+  resaltarla; no tiene ningún efecto.
+
+### 5.8 Pegar inventario desde RollerCoin
+
+- Botón **"pegar inventario"** (arriba). Abre un `<textarea>`; se pega el listado
+  de mineros copiado de rollercoin.com y se manda a `POST /api/inventory/parse`.
+- Backend [`app/paste.py`](backend/app/paste.py): parte el texto por `Miner
+  details`, y de cada bloque saca nombre, celdas, poder (`40.000 Ph/s` → GH/s),
+  bonus (`22 %` → bp) y cantidad.
+- **El nº de nivel que muestra la web de RollerCoin en el inventario NO es
+  nuestro `level`** (la web cuenta merges: su "1" = nuestro nivel 2, su "5" =
+  nuestro nivel 6, el minero base no lleva número). Por eso el match contra el
+  catálogo es **por nombre + poder/bonus más cercano** (`_best_match`, error
+  relativo < 0.15), ignorando ese número. Si casa, se usan los datos exactos del
+  catálogo (id, poder, bonus, celdas, imagen). Si no casa, se guarda como ítem
+  "sin catálogo" con `id = "paste:<slug>:<lvl>"`.
+- El frontend muestra una previsualización y dos acciones:
+  **"reemplazar inventario"** (los modelos ausentes en el texto quedan en 0) o
+  **"sumar a lo que tengo"** (`quantity += pegado`). Ambas conservan `planned` y
+  el nº de salas; `inRoom` se re-acota a la nueva `quantity`.
 
 ---
 
@@ -134,6 +199,10 @@ Por eso el catálogo:
 2. por cada nombre llama `get-by-miner-name` y extrae de `requiredItems` los
    mineros `type:"miners"` que falten (principalmente el `level: 0` base);
 3. **expone `level = api_level + 1`** → base = **1**, api 1 = 2, … api 5 = **6**.
+
+Iconos de nivel: `frontend/public/miner-levels/level_<N>.webp` para `N = 1..6`
+(numerales romanos I–VI; todos con ratio 1.38, se escalan por `height`). Van a la
+izquierda del nombre, pequeños (~11 px de alto).
 
 Ejemplo `10k Crust`:
 
@@ -162,6 +231,13 @@ Campos usados de cada item:
 | `resultItemWidth` | celdas que ocupa (1 o 2) |
 | `resultItemFileName`, `resultItemImageVersion` | imagen: `cdn.rollercoincalculator.app/miners/<fileName>.png?v=<version>` |
 
+⚠️ **Apóstrofos en `fileName`**: el CDN quita los apóstrofos del nombre
+(`Captain's Fortune` → `captains_fortune.png`), pero para los niveles de *merge*
+la API a veces devuelve `resultItemFileName` con la comilla tipográfica `’`
+intacta → URL 404. `_image_url()` los saca (`'` `’` `ʼ` `` ` ``). Afectaba a 5
+mineros (Captain's Fortune, Corsair's Oath, Devil's Ember, Hashbeard's Ship,
+King's Legacy); el seed se parcheó en sitio.
+
 **Las imágenes son sprite sheets** (los mineros están animados en el juego):
 6 frames en horizontal, cada frame de `58·width × 50` px
 (width-1 → `348×50`, width-2 → `696×50`). El componente `MinerSprite` del
@@ -175,15 +251,19 @@ Observaciones verificadas (2026-09-03):
 - El escalado de bonus `/ 10000` está confirmado en el código del calculador
   (`RoomPowerSimulator`: `globalBonusPercent / 10000`).
 
-### 6.1 Caché
+### 6.1 Caché y rate-limit
 
-- Primera carga completa (masivo + ~1444 `get-by-miner-name`): la API limita a
-  ~6 req/s → **~4 min**. Por eso el repo trae un **snapshot** en
-  `backend/app/data/catalog_seed.json` que se usa al arrancar (instantáneo).
-- El backend cachea en `backend/.cache/catalog.json` por 7 días.
-- **No** se recarga sola por antigüedad (bloquearía requests). `/api/health`
-  informa `catalog_stale`; el usuario recarga con `POST /api/catalog/refresh`
-  (botón "recargar" en la UI, tarda ~4 min).
+- La API **limita agresivamente (429)**. El fetch usa: `_CONCURRENCY = 4`,
+  limitador global `~4 req/s`, y backoff exponencial que honra `Retry-After`.
+  Carga completa (~1444 `get-by-miner-name`): **~6–8 min**.
+- El repo trae un **snapshot** en `backend/app/data/catalog_seed.json` que se usa
+  al arrancar (instantáneo). El backend cachea en `backend/.cache/catalog.json`
+  por 7 días.
+- **`refresh()` hace merge**: parte de lo que ya había, así que un refresh
+  parcial (algún 429 que no se recuperó) **nunca borra** datos previos.
+- **No** se recarga sola por antigüedad. `/api/health` informa `catalog_stale` y
+  `catalog_missing_base` (nombres sin su nivel 1 → fetch incompleto). El usuario
+  recarga con `POST /api/catalog/refresh` (botón "recargar" en la UI).
 
 ### 6.2 Limitaciones conocidas
 
@@ -249,7 +329,7 @@ eso es `< 1e6 GH/s`, despreciable). `status`:
 | status | significado |
 |---|---|
 | `optimal` | óptimo demostrado (o dentro de `1e-6`) |
-| `feasible` | se agotó el tiempo; es la mejor solución encontrada (en la práctica, holgura ínfima) |
+| `feasible` | solución válida pero el solver no llegó a *demostrar* que es la óptima dentro de las 2×15 s (o cortó por el gap 1e-6). En la práctica la holgura es ínfima. UI: "válida · óptimo no demostrado" |
 | `infeasible` / `unknown` | no debería ocurrir (la selección vacía siempre es válida) |
 
 Tiempo típico: 0.1–4 s para inventarios de 15–90 modelos distintos.
@@ -286,6 +366,9 @@ despreciable (`~ 1e-10` relativo).
 - `GET  /api/catalog?search=<txt>&limit=<n>` — catálogo de modelos (desde
   RollerCoin, cacheado 24 h).
 - `POST /api/catalog/refresh` — fuerza recarga del catálogo.
+- `POST /api/inventory/parse` — body `{ "text": "<pegado de RollerCoin>" }` →
+  `{ items: [{id,name,level,power,bonus_bp,width,quantity,image,matched}],
+  skipped: [] }`. Ver §5.8.
 - `POST /api/optimize` — body:
 
 ```jsonc
@@ -336,14 +419,17 @@ Números que pueden exceder `2^53` viajan como **string**. El frontend usa
 
 ## 9. Decisiones abiertas / a confirmar
 
-1. **48/72 = mineros o celdas.** Default actual: mineros.
+1. ~~48/72 = mineros o celdas~~ → **resuelto**: celdas (`slot_mode: "cells"`),
+   1 sala = 96, 2 = 144.
 2. **Deduplicación por nivel.** Asumido: el bonus se deduplica solo si coinciden
    nombre **y** nivel (mismo `id`). Confirmado por el enunciado
    ("misma rareza incluso").
-6. **Numeración de niveles.** Se expone `nivel de juego = api_level + 1`
-   (base = 1). Confirmar contra la sala real que el juego numera así.
-3. **Redondeo del poder final.** Asumido: división entera hacia abajo, igual que
+3. **Numeración de niveles.** Se expone `nivel de juego = api_level + 1`
+   (base = 1, merges 2–6). Iconos `level_2..6.webp` lo respaldan.
+4. **Celdas salas 3 y 4.** Asumido: cada sala extra aporta 144 (como la 2ª) →
+   384 / 528. El usuario confirmó sala 1 = 96 y sala 2 = +144 (240 total).
+5. **Redondeo del poder final.** Asumido: división entera hacia abajo, igual que
    el juego. Verificar contra un caso real en la sala.
-4. **Mineros no-merge.** Por ahora se cubren con entrada manual.
-5. **¿El objetivo es por juego o por sala?** No afecta al algoritmo; el usuario
+6. **Mineros no-merge.** Por ahora se cubren con entrada manual.
+7. **¿El objetivo es por juego o por sala?** No afecta al algoritmo; el usuario
    ingresa el número que quiera.

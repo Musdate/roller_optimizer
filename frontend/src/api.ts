@@ -19,8 +19,36 @@ export function fetchCatalog(search = "", limit = 60): Promise<CatalogMiner[]> {
   return fetch(`${BASE}/catalog?${q}`).then((r) => json<CatalogMiner[]>(r));
 }
 
-export function refreshCatalog(): Promise<{ ok: boolean; catalog_size: number }> {
+export function refreshCatalog(): Promise<{
+  ok: boolean;
+  started: boolean;
+  already_running: boolean;
+  refreshing: boolean;
+  missing_base: number;
+}> {
   return fetch(`${BASE}/catalog/refresh`, { method: "POST" }).then((r) => json(r));
+}
+
+export interface ParsedItem {
+  id: string;
+  name: string;
+  level: number;
+  power: string;
+  bonus_bp: number;
+  width: number;
+  quantity: number;
+  image: string;
+  matched: boolean;
+}
+
+export function parseInventoryText(
+  text: string,
+): Promise<{ items: ParsedItem[]; skipped: string[] }> {
+  return fetch(`${BASE}/inventory/parse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  }).then((r) => json(r));
 }
 
 export function optimize(body: OptimizeRequestBody): Promise<OptimizeResponse> {

@@ -90,6 +90,27 @@ class OptimizeResponse(BaseModel):
     solve_time_s: float
 
 
+class ParseInventoryBody(BaseModel):
+    text: str = Field(min_length=1, max_length=200_000)
+
+
+class ParsedItemOut(BaseModel):
+    id: str
+    name: str
+    level: int
+    power: str
+    bonus_bp: int
+    width: int
+    quantity: int
+    image: str = ""
+    matched: bool
+
+
+class ParseInventoryResponse(BaseModel):
+    items: list[ParsedItemOut]
+    skipped: list[str]
+
+
 class CatalogMinerOut(BaseModel):
     id: str
     name: str

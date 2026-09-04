@@ -6,12 +6,14 @@ import MinerSprite from "./MinerSprite";
 import LevelBadge from "./LevelBadge";
 import type { CatalogMiner } from "../types";
 
-export default function CatalogSearch() {
+export default function CatalogSearch({ loading: catalogBusy = false }: { loading?: boolean }) {
   const [term, setTerm] = useState("");
   const [rows, setRows] = useState<CatalogMiner[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
   const addFromCatalog = useStore((s) => s.addFromCatalog);
+  const addPlanned = useStore((s) => s.addPlanned);
   const inventory = useStore((s) => s.inventory);
   const debounce = useRef<number>();
 
@@ -34,21 +36,30 @@ export default function CatalogSearch() {
         <h2>Catálogo de mineros</h2>
         <button
           className="tiny"
-          disabled={loading}
-          title="Vuelve a bajar todo el catálogo de RollerCoin. Tarda ~4 min."
+          disabled={loading || catalogBusy}
+          title={
+            catalogBusy
+              ? "Ya hay una descarga del catálogo en curso"
+              : "Vuelve a bajar todo el catálogo de RollerCoin (~15 min, en segundo plano)"
+          }
           onClick={() => {
-            if (!confirm("Recargar el catálogo completo desde RollerCoin.\nTarda ~4 minutos. ¿Continuar?")) return;
-            setLoading(true);
+            if (!confirm("Recargar el catálogo completo desde RollerCoin.\nCorre en segundo plano y tarda ~15 min. ¿Continuar?")) return;
             setErr(null);
             refreshCatalog()
-              .then(() => fetchCatalog(term, 60).then(setRows))
-              .catch((e) => setErr(String(e)))
-              .finally(() => setLoading(false));
+              .then((r) =>
+                setRefreshMsg(
+                  r.already_running
+                    ? "Ya había una descarga en curso."
+                    : "Descarga iniciada. El progreso aparece en el aviso de arriba.",
+                ),
+              )
+              .catch((e) => setErr(String(e)));
           }}
         >
-          recargar (~4 min)
+          {catalogBusy ? "descargando…" : "recargar"}
         </button>
       </div>
+      {refreshMsg && <div className="muted" style={{ fontSize: 12 }}>{refreshMsg}</div>}
       <input
         style={{ width: "100%", margin: "8px 0" }}
         placeholder="Buscar por nombre… (ej: Bite Of Ice)"
@@ -62,16 +73,26 @@ export default function CatalogSearch() {
           <div className="list-item" key={m.id}>
             <MinerSprite url={m.image} width={m.width} size={34} />
             <div className="name">
-              <div>
-                {m.name} <LevelBadge level={m.level} />
+              <div className="name-row">
+                <LevelBadge level={m.level} />
+                {m.name}
               </div>
               <div className="sub">
                 {formatPower(BigInt(m.power))} · +{bpToPct(m.bonus_bp)} · {m.width} celda{m.width > 1 ? "s" : ""}
               </div>
             </div>
-            <button className="tiny" onClick={() => addFromCatalog(m, 1)}>
-              {inventory[m.id] ? `+1 (${inventory[m.id].quantity})` : "añadir"}
-            </button>
+            <div className="col-btns">
+              <button className="tiny" onClick={() => addFromCatalog(m, 1)}>
+                {inventory[m.id]?.quantity ? `tengo +1 (${inventory[m.id].quantity})` : "tengo"}
+              </button>
+              <button
+                className="tiny"
+                title="Añadir a “Nueva adquisición” (mineros que planeo obtener)"
+                onClick={() => addPlanned(m, 1)}
+              >
+                {inventory[m.id]?.planned ? `nuevo +1 (${inventory[m.id].planned})` : "nuevo"}
+              </button>
+            </div>
           </div>
         ))}
         {!loading && rows.length === 0 && <div className="muted">sin resultados</div>}

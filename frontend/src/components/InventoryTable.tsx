@@ -1,75 +1,59 @@
-import { useStore, selectInventoryList } from "../store";
+import {
+  useStore,
+  selectInventoryList,
+  selectBenchList,
+  sortInventory,
+  INV_SORTS,
+} from "../store";
+import type { InvSort } from "../store";
 import { bpToPct, formatPower, formatExactGh } from "../power";
 import { inventoryTotals } from "../calc";
 import MinerSprite from "./MinerSprite";
 import LevelBadge from "./LevelBadge";
 
 export default function InventoryTable() {
-  const list = useStore(selectInventoryList);
+  const fullList = useStore(selectInventoryList);
+  const benchRaw = useStore(selectBenchList);
+  const invSort = useStore((s) => s.invSort);
+  const setInvSort = useStore((s) => s.setInvSort);
   const setQuantity = useStore((s) => s.setQuantity);
+  const setInRoom = useStore((s) => s.setInRoom);
   const remove = useStore((s) => s.remove);
   const clear = useStore((s) => s.clearInventory);
 
-  const totals = inventoryTotals(list);
-
-  function exportJson() {
-    const blob = new Blob([JSON.stringify(list, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "inventario-roller.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function importJson(file: File) {
-    file.text().then((txt) => {
-      try {
-        const items = JSON.parse(txt);
-        const add = useStore.getState().addCustom;
-        for (const it of items) {
-          add({
-            id: String(it.id),
-            name: String(it.name ?? ""),
-            level: Number(it.level ?? 0),
-            power: String(it.power),
-            bonus_bp: Number(it.bonus_bp ?? 0),
-            width: Number(it.width ?? 1),
-            quantity: Number(it.quantity ?? 1),
-          });
-        }
-      } catch (e) {
-        alert("JSON inválido: " + e);
-      }
-    });
-  }
+  const list = sortInventory(benchRaw, invSort);
+  const totals = inventoryTotals(fullList);
 
   return (
     <div className="panel">
       <div className="row between">
-        <h2>Mi inventario ({list.length} modelos)</h2>
+        <h2>Mi inventario</h2>
         <div className="row">
-          <button className="tiny" onClick={exportJson} disabled={!list.length}>
-            exportar
-          </button>
-          <label className="tiny" style={{ cursor: "pointer" }}>
-            importar
-            <input
-              type="file"
-              accept="application/json"
-              style={{ display: "none" }}
-              onChange={(e) => e.target.files?.[0] && importJson(e.target.files[0])}
-            />
-          </label>
-          <button className="tiny" onClick={clear} disabled={!list.length}>
+          <select
+            className="tiny"
+            value={invSort}
+            onChange={(e) => setInvSort(e.target.value as InvSort)}
+            title="Ordenar por"
+          >
+            {INV_SORTS.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <button className="tiny" onClick={clear} disabled={!fullList.length}>
             vaciar
           </button>
         </div>
       </div>
 
-      {list.length === 0 ? (
+      {fullList.length === 0 ? (
         <div className="muted" style={{ padding: "12px 0" }}>
           Añade mineros desde el catálogo →
+        </div>
+      ) : list.length === 0 ? (
+        <div className="muted" style={{ padding: "12px 0" }}>
+          Todos tus mineros están en la sala.
         </div>
       ) : (
         <div className="scroll">
@@ -79,7 +63,8 @@ export default function InventoryTable() {
                 <th>Minero</th>
                 <th className="num">Poder</th>
                 <th className="num">Bonus</th>
-                <th className="num">Cant.</th>
+                <th className="num">Tengo</th>
+                <th className="num">En sala</th>
                 <th></th>
               </tr>
             </thead>
@@ -88,11 +73,15 @@ export default function InventoryTable() {
                 <tr key={it.id}>
                   <td>
                     <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
-                      <MinerSprite url={it.image ?? ""} width={it.width} size={28} />
-                      <span>
-                        {it.name || <span className="muted">custom</span>}{" "}
-                        {it.level > 0 && <LevelBadge level={it.level} />}
-                        {it.width > 1 && <span className="pill" style={{ marginLeft: 4 }}>2c</span>}
+                      <MinerSprite
+                        url={it.image ?? ""}
+                        width={it.width}
+                        size={28}
+                        title={`${it.width} celda${it.width > 1 ? "s" : ""}`}
+                      />
+                      <span className="name-row">
+                        <LevelBadge level={it.level} />
+                        {it.name || <span className="muted">custom</span>}
                       </span>
                     </div>
                   </td>
@@ -105,8 +94,18 @@ export default function InventoryTable() {
                       type="number"
                       min={0}
                       value={it.quantity}
-                      style={{ width: 60 }}
+                      style={{ width: 56 }}
                       onChange={(e) => setQuantity(it.id, Number(e.target.value))}
+                    />
+                  </td>
+                  <td className="num">
+                    <input
+                      type="number"
+                      min={0}
+                      max={it.quantity}
+                      value={it.inRoom ?? 0}
+                      style={{ width: 56 }}
+                      onChange={(e) => setInRoom(it.id, Number(e.target.value))}
                     />
                   </td>
                   <td className="num">
@@ -121,7 +120,7 @@ export default function InventoryTable() {
         </div>
       )}
 
-      {list.length > 0 && (
+      {fullList.length > 0 && (
         <div className="stat-row" style={{ marginTop: 10 }}>
           <div className="stat">
             <span className="k">Poder bruto total</span>

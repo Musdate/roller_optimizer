@@ -16,7 +16,10 @@ export interface InventoryItem {
   bonus_bp: number;
   width: number;
   quantity: number;
+  inRoom?: number; // cuántas copias tengo puestas en la sala ahora mismo
+  planned?: number; // cuántas copias planeo adquirir ("Nueva adquisición")
   image?: string;
+  order?: number; // orden de agregado (para ordenar "más reciente")
 }
 
 export type SlotMode = "miners" | "cells";

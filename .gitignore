@@ -11,6 +11,9 @@ dist/
 *.local
 *.tsbuildinfo
 
+# build artifacts
+backend/static/
+
 # Editor / OS
 .vscode/
 .idea/

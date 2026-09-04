@@ -5,17 +5,24 @@ Capa delgada sobre `optimizer.py` (lógica pura) y `catalog.py` (datos).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .catalog import catalog
 from .models import (
     CatalogMinerOut,
     OptimizeRequestBody,
     OptimizeResponse,
+    ParsedItemOut,
+    ParseInventoryBody,
+    ParseInventoryResponse,
     PickOut,
 )
 from .optimizer import MinerModel, OptimizeRequest, optimize
+from .paste import parse_inventory
 
 app = FastAPI(title="Optimizador Sala RollerCoin", version="0.1.0")
 
@@ -27,23 +34,31 @@ app.add_middleware(
 )
 
 
-@app.get("/")
-def root() -> dict:
+@app.get("/api")
+def api_root() -> dict:
     return {
         "service": "Optimizador Sala RollerCoin — API",
-        "frontend": "http://localhost:5173",
         "docs": "/docs",
-        "endpoints": ["/api/health", "/api/catalog", "/api/catalog/refresh", "/api/optimize"],
+        "endpoints": [
+            "/api/health",
+            "/api/catalog",
+            "/api/catalog/refresh",
+            "/api/inventory/parse",
+            "/api/optimize",
+        ],
     }
 
 
 @app.get("/api/health")
 def health() -> dict:
+    rows = catalog.all()  # recarga el seed si cambió en disco
     return {
         "ok": True,
-        "catalog_size": len(catalog._miners),
+        "catalog_size": len(rows),
         "catalog_fetched_at": catalog.fetched_at,
         "catalog_stale": catalog.stale,
+        "catalog_missing_base": catalog.missing_base,
+        "catalog_refreshing": catalog.refreshing,
     }
 
 
@@ -73,11 +88,36 @@ def get_catalog(
 
 @app.post("/api/catalog/refresh")
 def refresh_catalog() -> dict:
-    try:
-        catalog.refresh()
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, f"no se pudo recargar el catálogo: {exc}") from exc
-    return {"ok": True, "catalog_size": len(catalog._miners)}
+    started = catalog.refresh_async()
+    return {
+        "ok": True,
+        "started": started,
+        "already_running": not started,
+        "refreshing": catalog.refreshing,
+        "missing_base": catalog.missing_base,
+    }
+
+
+@app.post("/api/inventory/parse", response_model=ParseInventoryResponse)
+def parse_pasted_inventory(body: ParseInventoryBody) -> ParseInventoryResponse:
+    res = parse_inventory(body.text, catalog.all())
+    return ParseInventoryResponse(
+        items=[
+            ParsedItemOut(
+                id=it.id,
+                name=it.name,
+                level=it.level,
+                power=str(it.power),
+                bonus_bp=it.bonus_bp,
+                width=it.width,
+                quantity=it.quantity,
+                image=it.image,
+                matched=it.matched,
+            )
+            for it in res.items
+        ],
+        skipped=res.skipped,
+    )
 
 
 @app.post("/api/optimize", response_model=OptimizeResponse)
@@ -127,3 +167,12 @@ def run_optimize(body: OptimizeRequestBody) -> OptimizeResponse:
         scale=res.scale,
         solve_time_s=res.solve_time_s,
     )
+
+
+# --- frontend estático -------------------------------------------------------
+# En producción el build de Vite se copia a backend/static/ (ver Dockerfile) y
+# se sirve desde la misma app: la UI queda en `/` y la API en `/api`. La app no
+# usa routing de cliente, así que StaticFiles(html=True) alcanza.
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+if _STATIC_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="frontend")

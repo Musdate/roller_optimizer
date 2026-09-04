@@ -14,6 +14,7 @@ del recipe de nivel 1. Por eso:
 from __future__ import annotations
 
 import json
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -26,12 +27,46 @@ _PAGE_SIZE = 1000
 _CACHE_FILE = Path(__file__).resolve().parent.parent / ".cache" / "catalog.json"
 _SEED_FILE = Path(__file__).resolve().parent / "data" / "catalog_seed.json"
 _TTL_SECONDS = 7 * 24 * 3600
-_CONCURRENCY = 16
+
+# La API tolera ~5 req/s en 1 conexión hasta ~80 seguidas y después empieza a
+# colgar/timeout (no manda 429 limpio). Estrategia: 1 sola conexión, ~3 req/s,
+# y una pausa cada _BURST requests. refresh() hace merge y saltea nombres que ya
+# tienen su nivel base -> reintentar completa lo que falte.
+_CONCURRENCY = 1
+_MAX_RPS = 3.0
+_MAX_RETRIES = 5
+_BURST = 60
+_BURST_PAUSE = 20.0
+
+
+class _RateLimiter:
+    def __init__(self, rps: float) -> None:
+        self._min_interval = 1.0 / rps
+        self._lock = threading.Lock()
+        self._next = 0.0
+
+    def wait(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            sleep_for = self._next - now
+            self._next = max(now, self._next) + self._min_interval
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+
+
+_limiter = _RateLimiter(_MAX_RPS)
+
+
+# El CDN de RollerCoin quita los apóstrofos del nombre de archivo
+# ("Captain's Fortune" -> captains_fortune.png), pero la API a veces devuelve el
+# `fileName` con la comilla tipográfica (’) intacta -> URL rota. Se sanea aquí.
+_FNAME_STRIP = str.maketrans({"'": "", "’": "", "ʼ": "", "`": ""})
 
 
 def _image_url(file_name: str | None, version: int | None) -> str:
     if not file_name:
         return ""
+    file_name = file_name.translate(_FNAME_STRIP)
     return f"{_CDN}/miners/{file_name}.png" + (f"?v={version}" if version else "")
 
 
@@ -49,13 +84,16 @@ def _model_from_result(it: dict) -> dict:
     }
 
 
-def _model_from_required(ri: dict) -> dict | None:
+def _model_from_required(ri: dict, name: str | None = None) -> dict | None:
+    # `name` = nombre canónico del recipe padre. La API a veces devuelve el
+    # `itemName` del ingrediente con la comilla distinta (recta vs. tipográfica),
+    # lo que rompe el agrupado por nombre.
     if ri.get("type") != "miners" or ri.get("power") is None:
         return None
     api_level = int(ri.get("level") or 0)
     return {
         "id": ri["itemId"],
-        "name": ri.get("itemName", ""),
+        "name": name or ri.get("itemName", ""),
         "api_level": api_level,
         "level": api_level + 1,
         "power": int(ri["power"]),
@@ -69,11 +107,13 @@ def _fetch_results(client: httpx.Client) -> list[dict]:
     out: list[dict] = []
     index = 0
     while True:
-        resp = client.get(
-            f"{_BASE}/Merges",
-            params={"PageRequest.PageIndex": index, "PageRequest.PageSize": _PAGE_SIZE},
+        resp = _get(
+            client,
+            "/Merges",
+            {"PageRequest.PageIndex": index, "PageRequest.PageSize": _PAGE_SIZE},
         )
-        resp.raise_for_status()
+        if resp is None:
+            break
         body = resp.json()
         items = body["items"] if isinstance(body, dict) else body
         if not items:
@@ -87,61 +127,107 @@ def _fetch_results(client: httpx.Client) -> list[dict]:
     return out
 
 
-def _fetch_ladder(client: httpx.Client, name: str) -> list[dict]:
-    for attempt in range(3):
+_req_count = 0
+
+
+def _get(client: httpx.Client, path: str, params: dict) -> httpx.Response | None:
+    """GET con limitador global + pausa por ráfaga + backoff en 429/5xx/timeout.
+    Devuelve None si se agotan los reintentos (no lanza)."""
+    global _req_count
+    delay = 3.0
+    for _ in range(_MAX_RETRIES):
+        _limiter.wait()
+        _req_count += 1
+        if _req_count % _BURST == 0:
+            time.sleep(_BURST_PAUSE)
         try:
-            r = client.get(f"{_BASE}/Merges/get-by-miner-name", params={"minerName": name})
-            if r.status_code == 429 or r.status_code >= 500:
-                time.sleep(0.5 * (attempt + 1))
-                continue
-            r.raise_for_status()
-            return r.json() or []
-        except httpx.HTTPError:
-            time.sleep(0.5 * (attempt + 1))
-    return []
+            r = client.get(f"{_BASE}{path}", params=params)
+        except (httpx.TimeoutException, httpx.HTTPError):
+            time.sleep(delay)
+            delay = min(delay * 2, 60)
+            continue
+        if r.status_code == 429 or r.status_code >= 500:
+            retry_after = r.headers.get("Retry-After")
+            wait = float(retry_after) if (retry_after or "").replace(".", "", 1).isdigit() else delay
+            time.sleep(min(wait, 60))
+            delay = min(delay * 2, 60)
+            continue
+        return r if r.is_success else None
+    return None
 
 
-def _fetch_all() -> list[dict]:
-    miners: dict[str, dict] = {}
+def _fetch_ladder(client: httpx.Client, name: str) -> list[dict]:
+    r = _get(client, "/Merges/get-by-miner-name", {"minerName": name})
+    if r is None:
+        return []
+    try:
+        return r.json() or []
+    except json.JSONDecodeError:
+        return []
+
+
+# nº de nombres cuyo fetch de escalera falló en el último refresh
+last_refresh_failures = 0
+
+
+def _fetch_all(previous: list[dict] | None = None) -> list[dict]:
+    global last_refresh_failures
+    # arranca de lo que ya teníamos: un refresh parcial nunca pierde datos
+    miners: dict[str, dict] = {m["id"]: m for m in (previous or [])}
+    failures = 0
+
     with httpx.Client(timeout=60, headers={"User-Agent": "optimizador-roller/0.1"}) as client:
-        # 1) resultados API 1..5
+        # 1) resultados API 1..5 (listado masivo)
         for it in _fetch_results(client):
-            m = _model_from_result(it)
-            miners.setdefault(m["id"], m)
+            miners[it["resultItemId"]] = _model_from_result(it)
 
-        names = sorted({m["name"] for m in miners.values()})
+        # 2) escalera + mineros base vía get-by-miner-name.
+        # Saltea los nombres que YA tienen su nivel base (1): así reintentar
+        # refresh() solo pega a los que faltan y converge en 2–3 pasadas.
+        have_base = {m["name"] for m in miners.values() if m["level"] == 1}
+        todo = sorted({m["name"] for m in miners.values()} - have_base)
 
-        # 2) mineros base (y verificación) vía get-by-miner-name en paralelo
-        def worker(name: str) -> list[dict]:
+        def worker(name: str) -> tuple[list[dict], bool]:
+            recipes = _fetch_ladder(client, name)
+            if not recipes:
+                return [], True
             found: list[dict] = []
-            for recipe in _fetch_ladder(client, name):
+            for recipe in recipes:
                 found.append(_model_from_result(recipe))
                 for ri in recipe.get("requiredItems", []):
-                    m = _model_from_required(ri)
+                    m = _model_from_required(ri, name=recipe.get("resultItemName"))
                     if m:
                         found.append(m)
-            return found
+            return found, False
 
         with ThreadPoolExecutor(max_workers=_CONCURRENCY) as pool:
-            for batch in pool.map(worker, names):
+            for batch, failed in pool.map(worker, todo):
+                if failed:
+                    failures += 1
                 for m in batch:
-                    miners.setdefault(m["id"], m)
+                    miners[m["id"]] = m
 
+    last_refresh_failures = failures
     return sorted(miners.values(), key=lambda m: (m["name"], m["level"]))
 
 
-def _read_json(path: Path) -> tuple[list[dict], float] | None:
+def _read_json(path: Path) -> tuple[list[dict], float, float] | None:
+    """(miners, fetched_at, mtime) o None."""
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        return data["miners"], float(data["fetched_at"])
+        return data["miners"], float(data["fetched_at"]), path.stat().st_mtime
     except (json.JSONDecodeError, KeyError, OSError):
         return None
 
 
-def _read_cache() -> tuple[list[dict], float] | None:
-    return _read_json(_CACHE_FILE) or _read_json(_SEED_FILE)
+def _read_cache() -> tuple[list[dict], float, float] | None:
+    """El más nuevo entre .cache/catalog.json y el seed del repo."""
+    candidates = [c for c in (_read_json(_CACHE_FILE), _read_json(_SEED_FILE)) if c]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: c[2])  # por mtime
 
 
 def _write_cache(miners: list[dict]) -> None:
@@ -155,9 +241,17 @@ class Catalog:
     def __init__(self) -> None:
         self._miners: list[dict] = []
         self._fetched_at: float = 0.0
+        self._disk_mtime: float = 0.0
+        self._refreshing = False
+        self._refresh_lock = threading.Lock()
+        self._load_from_disk()
+
+    def _load_from_disk(self) -> bool:
         cached = _read_cache()
-        if cached:
-            self._miners, self._fetched_at = cached
+        if not cached:
+            return False
+        self._miners, self._fetched_at, self._disk_mtime = cached
+        return True
 
     @property
     def stale(self) -> bool:
@@ -168,16 +262,54 @@ class Catalog:
         return self._fetched_at
 
     def ensure(self, force: bool = False) -> None:
+        # Si el seed/caché en disco cambió (p. ej. scripts/build_seed.py), recargar.
+        for path in (_CACHE_FILE, _SEED_FILE):
+            try:
+                if path.exists() and path.stat().st_mtime > self._disk_mtime:
+                    self._load_from_disk()
+                    break
+            except OSError:
+                pass
         # NO refresca por antigüedad de forma automática (tardaría minutos y
         # bloquearía la request). Solo si no hay datos o si se fuerza.
-        # La UI muestra `stale` y ofrece "recargar" -> POST /api/catalog/refresh.
         if force or not self._miners:
             self.refresh()
 
+    @property
+    def refreshing(self) -> bool:
+        return self._refreshing
+
     def refresh(self) -> None:
-        self._miners = _fetch_all()
-        self._fetched_at = time.time()
-        _write_cache(self._miners)
+        """Bloqueante. Descarga completa (~15-20 min por el rate-limit).
+        No-op si ya hay otro refresh en curso."""
+        if not self._refresh_lock.acquire(blocking=False):
+            return
+        self._refreshing = True
+        try:
+            self._miners = _fetch_all(previous=self._miners)
+            self._fetched_at = time.time()
+            _write_cache(self._miners)
+            try:
+                self._disk_mtime = _CACHE_FILE.stat().st_mtime
+            except OSError:
+                pass
+        finally:
+            self._refreshing = False
+            self._refresh_lock.release()
+
+    def refresh_async(self) -> bool:
+        """Lanza refresh() en un hilo. Devuelve False si ya había uno corriendo."""
+        if self._refreshing:
+            return False
+        threading.Thread(target=self.refresh, name="catalog-refresh", daemon=True).start()
+        return True
+
+    @property
+    def missing_base(self) -> int:
+        """Nombres sin su nivel base (1). Indica un fetch incompleto."""
+        names = {m["name"] for m in self._miners}
+        have_base = {m["name"] for m in self._miners if m["level"] == 1}
+        return len(names - have_base)
 
     def all(self) -> list[dict]:
         self.ensure()

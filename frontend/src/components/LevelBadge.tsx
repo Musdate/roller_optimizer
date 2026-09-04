@@ -1,14 +1,8 @@
-// Iconos de nivel de RollerCoin (roman numerals II–VI). El nivel 1 (base, minero
-// sin merge) no tiene icono en el juego. Ver RULES.md §6.0.
+// Iconos de nivel de RollerCoin (numerales romanos I–VI), servidos localmente
+// desde frontend/public/miner-levels/. Ver RULES.md §6.0.
 
 export default function LevelBadge({ level }: { level: number }) {
-  if (level < 2 || level > 6) {
-    return (
-      <span className="pill pill-base" title={`Nivel ${level}`}>
-        base
-      </span>
-    );
-  }
+  if (level < 1 || level > 6) return null;
   return (
     <img
       className="lvl-badge"

@@ -1,15 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { optimize } from "../api";
-import { useStore, selectInventoryList, roomsToCells, MAX_ROOMS } from "../store";
-import { parsePower, formatPower, formatExactGh } from "../power";
+import { useStore, selectOptimizeList, roomsToCells, MAX_ROOMS } from "../store";
+import { parsePower } from "../power";
 import type { OptimizeResponse, TargetUnit } from "../types";
 import ResultView from "./ResultView";
 
 const UNITS: TargetUnit[] = ["PH", "EH", "ZH"];
 const ROOM_OPTS = Array.from({ length: MAX_ROOMS }, (_, i) => i + 1);
+const TIME_LIMIT_S = 30;
 
 export default function OptimizePanel() {
-  const list = useStore(selectInventoryList);
+  const list = useStore(selectOptimizeList);
   const {
     targetNum,
     setTargetNum,
@@ -22,7 +23,19 @@ export default function OptimizePanel() {
 
   const [result, setResult] = useState<OptimizeResponse | null>(null);
   const [running, setRunning] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!running) return;
+    setElapsed(0);
+    const t0 = Date.now();
+    const id = window.setInterval(
+      () => setElapsed(Math.min(TIME_LIMIT_S, Math.round((Date.now() - t0) / 1000))),
+      250,
+    );
+    return () => window.clearInterval(id);
+  }, [running]);
 
   const parsed = useMemo(() => {
     try {
@@ -43,7 +56,7 @@ export default function OptimizePanel() {
         target_final_power: parsed.value.toString(),
         max_slots: maxCells,
         slot_mode: "cells",
-        time_limit_s: 8,
+        time_limit_s: TIME_LIMIT_S,
         inventory: list,
       });
       setResult(res);
@@ -61,7 +74,7 @@ export default function OptimizePanel() {
 
       <div className="row" style={{ margin: "8px 0", alignItems: "flex-end" }}>
         <label className="stat" style={{ flex: 1, minWidth: 160 }}>
-          <span className="k">Poder final objetivo (techo)</span>
+          <span className="k">Poder final objetivo</span>
           <div className="row" style={{ flexWrap: "nowrap" }}>
             <input
               type="number"
@@ -84,29 +97,19 @@ export default function OptimizePanel() {
           </div>
         </label>
 
-        <div className="stat">
-          <span className="k">Salas ({maxCells} celdas)</span>
-          <div className="row">
+        <label className="stat">
+          <span className="k">Salas</span>
+          <select value={rooms} onChange={(e) => setRooms(Number(e.target.value))}>
             {ROOM_OPTS.map((n) => (
-              <button
-                key={n}
-                className={rooms === n ? "primary tiny" : "tiny"}
-                onClick={() => setRooms(n)}
-              >
+              <option key={n} value={n}>
                 {n}
-              </button>
+              </option>
             ))}
-          </div>
-        </div>
+          </select>
+        </label>
       </div>
 
-      {parsed.ok ? (
-        <div className="muted" style={{ fontSize: 12 }}>
-          = {formatPower(parsed.value)} · {formatExactGh(parsed.value)}
-        </div>
-      ) : (
-        <div className="err">{parsed.msg}</div>
-      )}
+      {!parsed.ok && <div className="err">{parsed.msg}</div>}
 
       <button
         className="primary"
@@ -114,8 +117,14 @@ export default function OptimizePanel() {
         onClick={run}
         disabled={running || !parsed.ok || list.length === 0}
       >
-        {running ? "optimizando…" : "Optimizar sala"}
+        {running ? `optimizando sala…  ${elapsed}s / máx ${TIME_LIMIT_S}s` : "Optimizar sala"}
       </button>
+      {running && (
+        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+          El solver busca la mejor combinación exacta; puede tardar hasta {TIME_LIMIT_S} s
+          con inventarios grandes.
+        </div>
+      )}
       {list.length === 0 && (
         <span className="muted" style={{ marginLeft: 8 }}>
           añade mineros al inventario primero
