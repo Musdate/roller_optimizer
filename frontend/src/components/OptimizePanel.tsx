@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { optimize } from "../api";
+import { optimize, errMsg } from "../api";
 import { useStore, selectOptimizeList, roomsToCells, MAX_ROOMS } from "../store";
 import { parsePower } from "../power";
 import type { OptimizeResponse, TargetUnit } from "../types";
@@ -43,7 +43,7 @@ export default function OptimizePanel() {
       if (v <= 0n) return { ok: false as const, msg: "El objetivo debe ser mayor a 0" };
       return { ok: true as const, value: v };
     } catch (e) {
-      return { ok: false as const, msg: String(e) };
+      return { ok: false as const, msg: errMsg(e) };
     }
   }, [targetNum, targetUnit]);
 
@@ -61,7 +61,7 @@ export default function OptimizePanel() {
       });
       setResult(res);
     } catch (e) {
-      setErr(String(e));
+      setErr(errMsg(e));
       setResult(null);
     } finally {
       setRunning(false);

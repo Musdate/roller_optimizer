@@ -329,7 +329,7 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
    sobre .rack), así que cada una redondea a píxel distinto: el navegador
    no reparte el space-between con exactitud subpíxel. Se corrige a mano
    por fila en vez de perseguir un valor único "perfecto". */
-.rack-shelf { position: relative; top: -8px; left: 1px; display: flex; gap: 3px; height: 23%; margin: 0 10px; border-radius: 3px; transition: background .12s, outline-color .12s; }
+.rack-shelf { position: relative; top: -7px; left: 1px; display: flex; gap: 3px; height: 23%; margin: 0 10px; border-radius: 3px; transition: background .12s, outline-color .12s; }
 .rack-shelf:nth-child(1) { top: -12px; }
 .rack-shelf:nth-child(2) { top: -11px; }
 .rack-shelf:nth-child(3) { top: -9px; }

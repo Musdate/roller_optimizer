@@ -86,7 +86,7 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
         <thead>
           <tr>
             <th>Minero</th>
-            <th className="num">Cant.</th>
+            <th className="num">Cantidad</th>
             <th className="num">Poder c/u</th>
             <th className="num">Poder total</th>
             <th className="num">Bonus</th>

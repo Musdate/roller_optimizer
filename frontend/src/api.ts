@@ -7,10 +7,25 @@ import type {
 
 const BASE = "/api";
 
+/** Mensaje amigable para mostrar de un error atrapado (sin el "Error: " que
+ *  antepone `String(e)` a una excepción real). */
+export function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}${text ? ` — ${text}` : ""}`);
+    // FastAPI manda los errores como {"detail": "mensaje"} -- se muestra
+    // solo ese mensaje (amigable) en vez del texto crudo con el status HTTP.
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.detail === "string") detail = parsed.detail;
+    } catch {
+      // no era JSON: se usa el texto tal cual
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
   }
   return res.json() as Promise<T>;
 }

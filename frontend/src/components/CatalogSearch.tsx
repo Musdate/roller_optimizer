@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchCatalog, refreshCatalog, checkCatalog } from "../api";
+import { fetchCatalog, refreshCatalog, checkCatalog, errMsg } from "../api";
 import { useCatalogPoll } from "../catalogPoll";
 import { useDragState } from "../dragState";
 import { useCooldown } from "../useCooldown";
@@ -48,7 +48,7 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
       setErr(null);
       fetchCatalog(term, 60)
         .then(setRows)
-        .catch((e) => setErr(String(e)))
+        .catch((e) => setErr(errMsg(e)))
         .finally(() => setLoading(false));
     }, 250);
     return () => window.clearTimeout(debounce.current);
@@ -81,7 +81,7 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
                         : `Tienes ${r.local_names} de ${r.remote_names} nombres — no hay mineros nuevos.`,
                     ),
                   )
-                  .catch((e) => setErr(String(e)))
+                  .catch((e) => setErr(errMsg(e)))
                   .finally(() => {
                     setChecking(false);
                     checkCooldown.trigger();
@@ -120,7 +120,7 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
                     // mismo para que el aviso de progreso aparezca.
                     useCatalogPoll.getState().requestPoll();
                   })
-                  .catch((e) => setErr(String(e)))
+                  .catch((e) => setErr(errMsg(e)))
                   .finally(() => refreshCooldown.trigger());
               }}
             >

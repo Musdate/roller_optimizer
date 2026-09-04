@@ -5,6 +5,7 @@ Capa delgada sobre `optimizer.py` (lógica pura) y `catalog.py` (datos).
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -27,6 +28,16 @@ from .optimizer import MinerModel, OptimizeRequest, optimize
 from .paste import parse_inventory
 
 app = FastAPI(title="Optimizador Sala RollerCoin", version="0.1.0")
+
+# El solver de OR-Tools puede tardar hasta `time_limit_s` (30s desde el
+# frontend) y suele usar varios núcleos por sí solo -- en un VPS chico, unas
+# pocas optimizaciones a la vez alcanzan para saturar la CPU y poner lenta
+# TODA la app (y de paso a lo que sea que comparta servidor). Con un solo
+# candado no-bloqueante, como el de `catalog._refresh_lock`, como mucho
+# corre 1 a la vez; el resto recibe un 429 al toque en vez de encolarse (una
+# cola dejaría requests colgadas esperando, gastando igual un hilo/conexión
+# cada una).
+_optimize_lock = threading.Lock()
 
 app.add_middleware(
     CORSMiddleware,
@@ -198,51 +209,56 @@ def parse_pasted_inventory(body: ParseInventoryBody) -> ParseInventoryResponse:
 
 @app.post("/api/optimize", response_model=OptimizeResponse)
 def run_optimize(body: OptimizeRequestBody) -> OptimizeResponse:
-    models = [
-        MinerModel(
-            id=it.id,
-            power=it.power,
-            bonus_bp=it.bonus_bp,
-            quantity=it.quantity,
-            width=it.width,
-            name=it.name,
-            level=it.level,
-        )
-        for it in body.inventory
-    ]
-    req = OptimizeRequest(
-        target_final_power=body.target_final_power,
-        max_slots=body.max_slots,
-        slot_mode=body.slot_mode,
-        time_limit_s=body.time_limit_s,
-    )
-    res = optimize(models, req)
-    return OptimizeResponse(
-        status=res.status,
-        picks=[
-            PickOut(
-                id=p.id,
-                name=p.name,
-                level=p.level,
-                count=p.count,
-                power=str(p.power),
-                bonus_bp=p.bonus_bp,
-                width=p.width,
+    if not _optimize_lock.acquire(blocking=False):
+        raise HTTPException(429, "ya hay una optimización en curso — espera unos segundos y vuelve a intentar")
+    try:
+        models = [
+            MinerModel(
+                id=it.id,
+                power=it.power,
+                bonus_bp=it.bonus_bp,
+                quantity=it.quantity,
+                width=it.width,
+                name=it.name,
+                level=it.level,
             )
-            for p in res.picks
-        ],
-        raw_power=str(res.raw_power),
-        bonus_bp=res.bonus_bp,
-        bonus_pct=round(res.bonus_bp / 100, 2),
-        final_power=str(res.final_power),
-        target_final_power=str(res.target_final_power),
-        headroom=str(res.headroom),
-        headroom_pct=res.headroom_pct,
-        slots_used=res.slots_used,
-        cells_used=res.cells_used,
-        scale=res.scale,
-        solve_time_s=res.solve_time_s,
-    )
+            for it in body.inventory
+        ]
+        req = OptimizeRequest(
+            target_final_power=body.target_final_power,
+            max_slots=body.max_slots,
+            slot_mode=body.slot_mode,
+            time_limit_s=body.time_limit_s,
+        )
+        res = optimize(models, req)
+        return OptimizeResponse(
+            status=res.status,
+            picks=[
+                PickOut(
+                    id=p.id,
+                    name=p.name,
+                    level=p.level,
+                    count=p.count,
+                    power=str(p.power),
+                    bonus_bp=p.bonus_bp,
+                    width=p.width,
+                )
+                for p in res.picks
+            ],
+            raw_power=str(res.raw_power),
+            bonus_bp=res.bonus_bp,
+            bonus_pct=round(res.bonus_bp / 100, 2),
+            final_power=str(res.final_power),
+            target_final_power=str(res.target_final_power),
+            headroom=str(res.headroom),
+            headroom_pct=res.headroom_pct,
+            slots_used=res.slots_used,
+            cells_used=res.cells_used,
+            scale=res.scale,
+            solve_time_s=res.solve_time_s,
+        )
+    finally:
+        _optimize_lock.release()
 
 
 # --- frontend estático -------------------------------------------------------

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { parseInventoryText } from "../api";
+import { parseInventoryText, errMsg } from "../api";
 import type { ParsedItem } from "../api";
 import { useStore } from "../store";
 import { bpToPct, formatPower } from "../power";
@@ -21,7 +21,7 @@ export default function PasteInventory({ onDone }: { onDone?: () => void }) {
       setPreview(res);
       if (res.items.length === 0) setErr("No se reconoció ningún minero en ese texto.");
     } catch (e) {
-      setErr(String(e));
+      setErr(errMsg(e));
     } finally {
       setBusy(false);
     }
