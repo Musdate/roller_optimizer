@@ -529,7 +529,24 @@ export const useStore = create<State>()(
           return { inventory: rest };
         }),
 
-      clearInventory: () => set({ inventory: {} }),
+      // "vaciar" en Mi inventario: solo borra lo que está "en banco"
+      // (quantity - inRoom). Lo puesto en la sala se preserva tal cual --
+      // igual que "reemplazar inventario" y la sincronización con la sala
+      // real, esto nunca debe vaciar la sala de rebote -- y lo "planeado"
+      // en Nueva adquisición tampoco se toca (tiene su propio "vaciar").
+      clearInventory: () =>
+        set((s) => {
+          const inv: Record<string, InventoryItem> = {};
+          for (const [id, it] of Object.entries(s.inventory)) {
+            const inRoom = it.inRoom ?? 0;
+            if (inRoom > 0) {
+              inv[id] = { ...it, quantity: inRoom };
+            } else if ((it.planned ?? 0) > 0) {
+              inv[id] = { ...it, quantity: 0 };
+            }
+          }
+          return { inventory: inv };
+        }),
 
       clearPlanned: () =>
         set((s) => {

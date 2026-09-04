@@ -77,12 +77,19 @@ export default function InventoryTable() {
       </div>
 
       {fullList.length > 0 && (
-        <input
-          style={{ width: "100%", margin: "8px 0" }}
-          placeholder="Buscar por nombre…"
-          value={term}
-          onChange={(e) => setTerm(e.target.value)}
-        />
+        <div className="search-wrap" style={{ margin: "8px 0" }}>
+          <input
+            style={{ width: "100%" }}
+            placeholder="Buscar por nombre…"
+            value={term}
+            onChange={(e) => setTerm(e.target.value)}
+          />
+          {term && (
+            <button className="search-clear" title="Limpiar búsqueda" onClick={() => setTerm("")}>
+              ×
+            </button>
+          )}
+        </div>
       )}
 
       {fullList.length === 0 ? (

@@ -133,12 +133,18 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
         </div>
       </div>
       {refreshMsg && <div className="muted" style={{ fontSize: 12 }}>{refreshMsg}</div>}
-      <input
-        style={{ width: "100%", margin: "8px 0" }}
-        placeholder="Buscar por nombre… (ej: Bite Of Ice)"
-        value={term}
-        onChange={(e) => setTerm(e.target.value)}
-      />
+      <div className="search-wrap" style={{ margin: "8px 0" }}>
+        <input
+          placeholder="Buscar por nombre… (ej: Bite Of Ice)"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+        />
+        {term && (
+          <button className="search-clear" title="Limpiar búsqueda" onClick={() => setTerm("")}>
+            ×
+          </button>
+        )}
+      </div>
       {err && <div className="err">{err}</div>}
       {loading && <div className="muted">cargando…</div>}
       <div className="scroll">

@@ -149,6 +149,23 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
 .cooldown-bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(0, 0, 0, .45); pointer-events: none; }
 @keyframes cooldown-bar-drain { from { width: 100%; } to { width: 0%; } }
 
+.search-wrap { position: relative; display: flex; }
+.search-wrap input { width: 100%; padding-right: 28px; }
+.search-clear {
+  position: absolute;
+  right: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 7px;
+}
+.search-clear:hover { color: var(--text); border-color: transparent; }
+
 .stat-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0; align-items: baseline; }
 .stat { display: flex; flex-direction: column; }
 .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
