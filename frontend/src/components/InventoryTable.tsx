@@ -160,22 +160,16 @@ export default function InventoryTable() {
       {fullList.length > 0 && (
         <div className="stat-row" style={{ marginTop: 10 }}>
           <div className="stat">
-            <span className="k">Poder bruto total</span>
-            <span className="v">{formatPower(totals.rawPower)}</span>
-          </div>
-          <div className="stat">
-            <span className="k">Bonus total</span>
-            <span className="v">+{bpToPct(totals.bonusBp)}</span>
-          </div>
-          <div className="stat">
-            <span className="k">Poder final (todo)</span>
+            <span className="k">Poder final</span>
             <span className="v">{formatPower(totals.finalPower)}</span>
           </div>
           <div className="stat">
-            <span className="k">Mineros / celdas</span>
-            <span className="v">
-              {totals.miners} / {totals.cells}
-            </span>
+            <span className="k">Mineros</span>
+            <span className="v">{formatPower(totals.rawPower)}</span>
+          </div>
+          <div className="stat">
+            <span className="k">Bonus</span>
+            <span className="v">+{bpToPct(totals.bonusBp)}</span>
           </div>
         </div>
       )}
