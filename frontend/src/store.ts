@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { CatalogMiner, InventoryItem, TargetUnit } from "./types";
+import type { CatalogMiner, InventoryItem, RoomImportItem, TargetUnit } from "./types";
 
 /** Celdas totales: 1ª sala = 96, cada sala a partir de la 2ª aporta 144.
  *  Un minero ocupa `width` celdas (1 o 2). */
@@ -134,6 +134,8 @@ interface State {
   rooms: number;
   /** Sala 1 por posición: 1 entrada por celda física (0..95). */
   roomSlots: (string | null)[];
+  /** userId de RollerCoin para sincronizar la sala real ("recargar sala"). */
+  rollercoinUserId: string;
 
   addFromCatalog: (m: CatalogMiner, qty?: number) => void;
   addPlanned: (m: CatalogMiner, qty?: number) => void;
@@ -142,6 +144,15 @@ interface State {
   setInRoom: (id: string, n: number) => void;
   setPlanned: (id: string, n: number) => void;
   applyRoom: (counts: Record<string, number>) => void;
+  /** Reemplaza la sala con lo que la API de RollerCoin dice que está
+   *  puesto AHORA en el juego real (ver `importRealRoom`). A diferencia de
+   *  `applyRoom` (que arma una sala hipotética con lo que ya tenés
+   *  guardado), acá los mineros que estaban puestos y salen de la nueva
+   *  lista se van del todo -- no vuelven a "en banco" -- porque este
+   *  reemplazo es una foto 1:1 de la sala real, no una reasignación interna
+   *  de copias que seguís teniendo. */
+  importRoomFromApi: (items: RoomImportItem[], slots: (string | null)[]) => void;
+  setRollercoinUserId: (v: string) => void;
   /** Pasa una copia del inventario a la celda dada (drag&drop). Sin celda
    *  (o si está ocupada) cae en el primer hueco compatible. */
   placeInRoomAt: (id: string, atCellIndex?: number) => void;
@@ -181,6 +192,7 @@ export const useStore = create<State>()(
       targetUnit: "PH",
       rooms: 1,
       roomSlots: Array(ROOM1_CELLS).fill(null),
+      rollercoinUserId: "",
 
       addFromCatalog: (m, qty = 1) =>
         set((s) => {
@@ -287,6 +299,59 @@ export const useStore = create<State>()(
           }
           return { inventory: inv };
         }),
+
+      importRoomFromApi: (items, slots) =>
+        set((s) => {
+          const nextSlots = slots.slice(0, ROOM1_CELLS);
+          while (nextSlots.length < ROOM1_CELLS) nextSlots.push(null);
+
+          const inv: Record<string, InventoryItem> = {};
+          // arranca solo con lo "en banco" (quantity - inRoom): la parte
+          // puesta en sala se descarta entera, la vuelva a mencionar o no
+          // la API (si ya no está puesta, se asume que no la tenés más).
+          for (const [id, it] of Object.entries(s.inventory)) {
+            const bench = Math.max(0, it.quantity - (it.inRoom ?? 0));
+            inv[id] = { ...it, quantity: bench, inRoom: 0 };
+          }
+          let ord = nextOrder(s.inventory) - 1;
+          for (const ri of items) {
+            const c = Math.max(0, Math.floor(ri.count));
+            if (c <= 0) continue;
+            const cur = inv[ri.id];
+            if (cur) {
+              inv[ri.id] = {
+                ...cur,
+                quantity: cur.quantity + c,
+                inRoom: c,
+                name: ri.name,
+                level: ri.level,
+                power: ri.power,
+                bonus_bp: ri.bonus_bp,
+                width: ri.width,
+                image: ri.image,
+              };
+            } else {
+              inv[ri.id] = {
+                id: ri.id,
+                name: ri.name,
+                level: ri.level,
+                power: ri.power,
+                bonus_bp: ri.bonus_bp,
+                width: ri.width,
+                quantity: c,
+                inRoom: c,
+                image: ri.image,
+                order: ++ord,
+              };
+            }
+          }
+          for (const [id, it] of Object.entries(inv)) {
+            if (it.quantity <= 0 && (it.planned ?? 0) <= 0) delete inv[id];
+          }
+          return { inventory: inv, roomSlots: nextSlots };
+        }),
+
+      setRollercoinUserId: (v) => set({ rollercoinUserId: v }),
 
       placeInRoomAt: (id, atCellIndex) =>
         set((s) => {

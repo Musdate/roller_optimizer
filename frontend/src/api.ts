@@ -2,6 +2,7 @@ import type {
   CatalogMiner,
   OptimizeRequestBody,
   OptimizeResponse,
+  RoomImportItem,
 } from "./types";
 
 const BASE = "/api";
@@ -83,4 +84,13 @@ export function optimize(body: OptimizeRequestBody): Promise<OptimizeResponse> {
 
 export function health(): Promise<Record<string, unknown>> {
   return fetch(`${BASE}/health`).then((r) => json(r));
+}
+
+/** Sala real (ya puesta en el juego) de un usuario de RollerCoin, para
+ *  reemplazar la sala local con lo que de verdad está puesto ahí. */
+export function importRealRoom(
+  userId: string,
+): Promise<{ items: RoomImportItem[]; total_cells: number; room_slots: (string | null)[] }> {
+  const q = new URLSearchParams({ userId });
+  return fetch(`${BASE}/room/import?${q}`).then((r) => json(r));
 }

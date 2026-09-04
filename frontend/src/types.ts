@@ -8,6 +8,12 @@ export interface CatalogMiner {
   image: string;
 }
 
+/** Un minero tal como está puesto AHORA MISMO en la sala real del juego
+ *  (desde /api/room/import). */
+export interface RoomImportItem extends CatalogMiner {
+  count: number;
+}
+
 export interface InventoryItem {
   id: string;
   name: string;

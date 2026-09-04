@@ -120,3 +120,13 @@ class CatalogMinerOut(BaseModel):
     bonus_bp: int
     width: int
     image: str
+
+
+class RoomImportItem(CatalogMinerOut):
+    count: int  # copias realmente puestas en la sala del juego
+
+
+class RoomImportResponse(BaseModel):
+    items: list[RoomImportItem]
+    total_cells: int  # suma de width*count, informativo
+    room_slots: list[str | None]  # 96 celdas en el mismo orden que en el juego

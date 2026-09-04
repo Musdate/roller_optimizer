@@ -111,14 +111,20 @@ export default function OptimizePanel() {
 
       {!parsed.ok && <div className="err">{parsed.msg}</div>}
 
-      <button
-        className="primary"
-        style={{ marginTop: 12 }}
-        onClick={run}
-        disabled={running || !parsed.ok || list.length === 0}
-      >
-        {running ? `optimizando sala…  ${elapsed}s / máx ${TIME_LIMIT_S}s` : "Optimizar sala"}
-      </button>
+      <div className="row" style={{ marginTop: 12 }}>
+        <button
+          className="primary"
+          onClick={run}
+          disabled={running || !parsed.ok || list.length === 0}
+        >
+          {running ? `optimizando sala…  ${elapsed}s / máx ${TIME_LIMIT_S}s` : "Optimizar sala"}
+        </button>
+        {result && (
+          <button className="tiny" style={{ alignSelf: "flex-end" }} onClick={() => setResult(null)}>
+            limpiar
+          </button>
+        )}
+      </div>
       {running && (
         <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
           El solver busca la mejor combinación exacta; puede tardar hasta {TIME_LIMIT_S} s

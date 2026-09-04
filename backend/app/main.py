@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .catalog import catalog
+from .catalog import RoomSyncError, catalog, fetch_user_room
 from .models import (
     CatalogMinerOut,
     OptimizeRequestBody,
@@ -20,6 +20,8 @@ from .models import (
     ParseInventoryBody,
     ParseInventoryResponse,
     PickOut,
+    RoomImportItem,
+    RoomImportResponse,
 )
 from .optimizer import MinerModel, OptimizeRequest, optimize
 from .paste import parse_inventory
@@ -45,6 +47,7 @@ def api_root() -> dict:
             "/api/catalog/by-ids",
             "/api/catalog/refresh",
             "/api/catalog/check",
+            "/api/room/import",
             "/api/inventory/parse",
             "/api/optimize",
         ],
@@ -140,6 +143,35 @@ def check_catalog() -> dict:
         return catalog.check_for_updates()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"no se pudo chequear el catálogo: {exc}") from exc
+
+
+@app.get("/api/room/import", response_model=RoomImportResponse)
+def import_real_room(user_id: str = Query(alias="userId", min_length=1, max_length=64)) -> RoomImportResponse:
+    """Sala real (ya puesta en el juego) de un usuario de RollerCoin, para
+    reemplazar la sala local con lo que de verdad está puesto."""
+    try:
+        room = fetch_user_room(user_id)
+    except RoomSyncError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    items = [
+        RoomImportItem(
+            id=r["id"],
+            name=r["name"],
+            level=r["level"],
+            api_level=r["api_level"],
+            power=str(r["power"]),
+            bonus_bp=r["bonus_bp"],
+            width=r["width"],
+            image=r["image"],
+            count=r["count"],
+        )
+        for r in room["items"]
+    ]
+    return RoomImportResponse(
+        items=items,
+        total_cells=sum(i.width * i.count for i in items),
+        room_slots=room["room_slots"],
+    )
 
 
 @app.post("/api/inventory/parse", response_model=ParseInventoryResponse)

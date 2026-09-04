@@ -127,6 +127,28 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
 
 .col-btns { display: flex; flex-direction: column; gap: 4px; flex: none; }
 
+.user-id-input { width: 153px; }
+.icon-btn { display: flex; align-items: center; justify-content: center; padding: 5px; height: 37px; width: 37px; }
+.icon-btn.spinning svg { animation: icon-spin .8s linear infinite; }
+@keyframes icon-spin { to { transform: rotate(360deg); } }
+
+/* Overlay circular de cooldown sobre el botón de "recargar sala": un disco
+   gris (estilo Pac-Man) que arranca tapando el ícono entero y se va
+   "comiendo" a sí mismo hasta desaparecer del todo a los 30s, cuando el
+   botón se vuelve a habilitar. El disco (.cooldown-pie) es más grande que
+   el botón a propósito -- para tapar también sus esquinas -- y acá se
+   recorta a la silueta cuadrada real del botón (mismo border-radius). */
+.icon-btn-wrap { position: relative; display: inline-flex; overflow: hidden; border-radius: 7px; }
+.cooldown-pie { position: absolute; inset: 0; pointer-events: none; transform: rotate(-90deg); }
+@keyframes cooldown-drain { to { stroke-dashoffset: var(--circ); } }
+
+/* Cooldown en barra (botones "chequear"/"recargar" del catálogo): tapa el
+   botón entero de entrada y va descendiendo -- angostándose hacia la
+   izquierda -- hasta desaparecer del todo. */
+.cooldown-wrap { position: relative; display: inline-flex; overflow: hidden; border-radius: 7px; }
+.cooldown-bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(0, 0, 0, .45); pointer-events: none; }
+@keyframes cooldown-bar-drain { from { width: 100%; } to { width: 0%; } }
+
 .stat-row { display: flex; gap: 18px; flex-wrap: wrap; margin: 4px 0; align-items: baseline; }
 .stat { display: flex; flex-direction: column; }
 .stat .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
@@ -308,8 +330,8 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
    no reparte el space-between con exactitud subpíxel. Se corrige a mano
    por fila en vez de perseguir un valor único "perfecto". */
 .rack-shelf { position: relative; top: -8px; left: 1px; display: flex; gap: 3px; height: 23%; margin: 0 10px; border-radius: 3px; transition: background .12s, outline-color .12s; }
-.rack-shelf:nth-child(1) { top: -11px; }
-.rack-shelf:nth-child(2) { top: -10px; }
+.rack-shelf:nth-child(1) { top: -12px; }
+.rack-shelf:nth-child(2) { top: -11px; }
 .rack-shelf:nth-child(3) { top: -9px; }
 /* Resalte de estante libre completo mientras se arrastra un minero de 2
    celdas: se pinta en la fila (no en cada slot) para que las 2 celdas se

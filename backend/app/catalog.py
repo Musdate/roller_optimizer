@@ -387,3 +387,109 @@ class Catalog:
 
 
 catalog = Catalog()
+
+
+class RoomSyncError(Exception):
+    """Fallo al consultar la sala real de un usuario en la API de RollerCoin."""
+
+
+# Sala 1 (la única con vista visual hoy) = 12 racks de 4 estantes x 2 celdas
+# c/u = 96 celdas, igual que `ROOM1_CELLS` del frontend (frontend/src/store.ts).
+_ROOM1_SHELVES_PER_RACK = 4
+_ROOM1_CELLS_PER_SHELF = 2
+_ROOM1_CELLS_PER_RACK = _ROOM1_SHELVES_PER_RACK * _ROOM1_CELLS_PER_SHELF  # 8
+_ROOM1_MAX_RACKS = 12
+_ROOM1_CELLS = _ROOM1_MAX_RACKS * _ROOM1_CELLS_PER_RACK  # 96
+
+
+def fetch_user_room(user_id: str) -> dict:
+    """Sala real (ya puesta en el juego) de `user_id`, vía
+    `/RollercoinUser/room?userId=...` (mismo host que el catálogo). Cada
+    minero puesto en el juego trae ya sus propios `power`/`bonus_percent`/
+    `width`/`filename` -- no hace falta cruzar contra el catálogo local, así
+    que esto funciona igual aunque el catálogo esté desactualizado.
+
+    Devuelve `{"items": [...], "room_slots": [...]}`:
+      - `items`: 1 dict por (id, nivel) distinto con `count` = copias
+        puestas, ordenado de mayor a menor cantidad.
+      - `room_slots`: 96 celdas (mismo layout que `ROOM1_CELLS` del
+        frontend) con el id puesto en cada una, replicando el orden real
+        del juego -- racks en orden de lectura (arriba-izq a abajo-der,
+        según `racks[].placement.x/y`) y, dentro de cada rack, el mismo
+        estante/lado (`miners[].placement.x/y`) que en RollerCoin. Si la
+        cuenta real tiene más de 12 racks (más de una sala física), los
+        que sobran no entran en esta vista (`items[].count` sigue siendo
+        el total real, usado para el poder -- solo el dibujo se recorta).
+
+    Sin reintentos para un `userId` inexistente: la API devuelve 500 (no
+    404), y reintentarlo como si fuera un error transitorio del servidor
+    solo haría esperar minutos para nada -- se falla rápido y se informa.
+    Un 429 sí es transitorio de verdad (dos clicks seguidos en "recargar
+    sala" alcanzan para gatillarlo) -- ahí se espera un toque y se
+    reintenta una vez antes de rendirse."""
+    def _do_request() -> httpx.Response:
+        try:
+            with httpx.Client(timeout=20, headers={"User-Agent": "optimizador-roller/0.1"}) as client:
+                return client.get(f"{_BASE}/RollercoinUser/room", params={"userId": user_id})
+        except httpx.HTTPError as exc:
+            raise RoomSyncError(f"no se pudo contactar la API de RollerCoin: {exc}") from exc
+
+    r = _do_request()
+    if r.status_code == 429:
+        time.sleep(3)
+        r = _do_request()
+    if r.status_code == 429:
+        raise RoomSyncError("la API de RollerCoin está limitando las solicitudes ahora mismo — espera unos segundos y vuelve a intentar")
+    if r.status_code != 200:
+        raise RoomSyncError(f"no se encontró esa sala (¿userId correcto?) — HTTP {r.status_code}")
+    try:
+        body = r.json()
+    except json.JSONDecodeError as exc:
+        raise RoomSyncError("respuesta inválida de la API de RollerCoin") from exc
+
+    # orden de lectura de los racks: fila (y) y luego columna (x), como se
+    # ven en el juego -- la API no manda un "índice" de rack, solo su (x, y).
+    racks = sorted(
+        body.get("racks") or [],
+        key=lambda rk: ((rk.get("placement") or {}).get("y", 0), (rk.get("placement") or {}).get("x", 0)),
+    )
+    rack_index = {rk["_id"]: i for i, rk in enumerate(racks) if rk.get("_id")}
+
+    slots: list[str | None] = [None] * _ROOM1_CELLS
+    grouped: dict[str, dict] = {}
+    for m in body.get("miners") or []:
+        mid = m.get("miner_id")
+        if not mid:
+            continue
+        if mid not in grouped:
+            api_level = int(m.get("level") or 0)
+            grouped[mid] = {
+                "id": mid,
+                "name": m.get("name", ""),
+                "api_level": api_level,
+                "level": api_level + 1,
+                "power": int(m.get("power") or 0),
+                "bonus_bp": int(m.get("bonus_percent") or 0),
+                "width": int(m.get("width") or 1),
+                "image": _image_url(m.get("filename"), None),
+                "count": 0,
+            }
+        grouped[mid]["count"] += 1
+
+        placement = m.get("placement") or {}
+        ri = rack_index.get(placement.get("user_rack_id"))
+        local_y = int(placement.get("y") or 0)
+        if ri is None or ri >= _ROOM1_MAX_RACKS or not (0 <= local_y < _ROOM1_SHELVES_PER_RACK):
+            continue  # no entra en la vista de 12 racks / 4 estantes de sala 1
+        shelf_start = ri * _ROOM1_CELLS_PER_RACK + local_y * _ROOM1_CELLS_PER_SHELF
+        if grouped[mid]["width"] >= 2:
+            # un minero de 2 celdas ocupa el estante entero (la API manda
+            # x=0 para el único registro que representa ambas celdas).
+            slots[shelf_start] = mid
+            slots[shelf_start + 1] = mid
+        else:
+            local_x = int(placement.get("x") or 0)
+            slots[shelf_start + (1 if local_x else 0)] = mid
+
+    items = sorted(grouped.values(), key=lambda x: (-x["count"], x["name"]))
+    return {"items": items, "room_slots": slots}
