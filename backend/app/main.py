@@ -1,0 +1,129 @@
+"""API FastAPI: catálogo + optimización.
+
+Capa delgada sobre `optimizer.py` (lógica pura) y `catalog.py` (datos).
+"""
+
+from __future__ import annotations
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+
+from .catalog import catalog
+from .models import (
+    CatalogMinerOut,
+    OptimizeRequestBody,
+    OptimizeResponse,
+    PickOut,
+)
+from .optimizer import MinerModel, OptimizeRequest, optimize
+
+app = FastAPI(title="Optimizador Sala RollerCoin", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/")
+def root() -> dict:
+    return {
+        "service": "Optimizador Sala RollerCoin — API",
+        "frontend": "http://localhost:5173",
+        "docs": "/docs",
+        "endpoints": ["/api/health", "/api/catalog", "/api/catalog/refresh", "/api/optimize"],
+    }
+
+
+@app.get("/api/health")
+def health() -> dict:
+    return {
+        "ok": True,
+        "catalog_size": len(catalog._miners),
+        "catalog_fetched_at": catalog.fetched_at,
+        "catalog_stale": catalog.stale,
+    }
+
+
+@app.get("/api/catalog", response_model=list[CatalogMinerOut])
+def get_catalog(
+    search: str = Query(default=""),
+    limit: int = Query(default=50, ge=1, le=1000),
+) -> list[CatalogMinerOut]:
+    try:
+        rows = catalog.search(search, limit)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"no se pudo obtener el catálogo: {exc}") from exc
+    return [
+        CatalogMinerOut(
+            id=r["id"],
+            name=r["name"],
+            level=r["level"],
+            api_level=r.get("api_level", 0),
+            power=str(r["power"]),
+            bonus_bp=r["bonus_bp"],
+            width=r["width"],
+            image=r["image"],
+        )
+        for r in rows
+    ]
+
+
+@app.post("/api/catalog/refresh")
+def refresh_catalog() -> dict:
+    try:
+        catalog.refresh()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"no se pudo recargar el catálogo: {exc}") from exc
+    return {"ok": True, "catalog_size": len(catalog._miners)}
+
+
+@app.post("/api/optimize", response_model=OptimizeResponse)
+def run_optimize(body: OptimizeRequestBody) -> OptimizeResponse:
+    models = [
+        MinerModel(
+            id=it.id,
+            power=it.power,
+            bonus_bp=it.bonus_bp,
+            quantity=it.quantity,
+            width=it.width,
+            name=it.name,
+            level=it.level,
+        )
+        for it in body.inventory
+    ]
+    req = OptimizeRequest(
+        target_final_power=body.target_final_power,
+        max_slots=body.max_slots,
+        slot_mode=body.slot_mode,
+        time_limit_s=body.time_limit_s,
+    )
+    res = optimize(models, req)
+    return OptimizeResponse(
+        status=res.status,
+        picks=[
+            PickOut(
+                id=p.id,
+                name=p.name,
+                level=p.level,
+                count=p.count,
+                power=str(p.power),
+                bonus_bp=p.bonus_bp,
+                width=p.width,
+            )
+            for p in res.picks
+        ],
+        raw_power=str(res.raw_power),
+        bonus_bp=res.bonus_bp,
+        bonus_pct=round(res.bonus_bp / 100, 2),
+        final_power=str(res.final_power),
+        target_final_power=str(res.target_final_power),
+        headroom=str(res.headroom),
+        headroom_pct=res.headroom_pct,
+        slots_used=res.slots_used,
+        cells_used=res.cells_used,
+        scale=res.scale,
+        solve_time_s=res.solve_time_s,
+    )
