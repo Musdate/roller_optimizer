@@ -266,7 +266,7 @@ export default function Estrategia12h() {
       <div className="s12-topbar panel">
         <div className="s12-brand">
           <h2>Estrategia 12h</h2>
-          <span className="s12-tag">RollerCoin · barras de dificultad de los minijuegos</span>
+          <span className="s12-tag">Gestion de niveles y tiempo</span>
         </div>
         <div className="s12-next">
           <span className="k">{round?.active ? "Ronda en curso" : "Siguiente ronda"}</span>

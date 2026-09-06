@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { bpToPct, formatPower, formatExactGh } from "../power";
 import { useStore } from "../store";
+import { useUndo } from "../undoState";
 import { totalsFor } from "../calc";
 import MinerSprite from "./MinerSprite";
 import type { OptimizeResponse } from "../types";
@@ -12,9 +13,16 @@ const STATUS_LABEL: Record<string, string> = {
   unknown: "desconocido",
 };
 
-export default function ResultView({ result: r }: { result: OptimizeResponse }) {
+export default function ResultView({
+  result: r,
+  maxCells,
+}: {
+  result: OptimizeResponse;
+  maxCells: number;
+}) {
   const inventory = useStore((s) => s.inventory);
   const applyRoom = useStore((s) => s.applyRoom);
+  const offerUndo = useUndo((s) => s.offer);
   const [selId, setSelId] = useState<string | null>(null);
 
   const pct = Math.min(100, r.headroom_pct);
@@ -58,6 +66,7 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
       (shownEqual && r.bonus_bp < roomTotals.bonusBp));
 
   function useAsRoom() {
+    offerUndo("Sala optimizada aplicada.", inventory);
     applyRoom(pickCounts);
   }
 
@@ -88,9 +97,55 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
         </div>
       </div>
 
-      <div className="bar" style={{ margin: "6px 0 14px" }}>
+      <div className="bar" style={{ marginTop: 6 }}>
         <span style={{ width: `${pct}%` }} />
       </div>
+      <div className="muted" style={{ fontSize: 12, margin: "4px 0 14px" }}>
+        {r.headroom_pct.toFixed(1)}% del objetivo
+        {BigInt(r.headroom) > 0n && <> · faltan {formatPower(BigInt(r.headroom))}</>}
+      </div>
+
+      {(r.picks.length > 0 || roomTotals.miners > 0) && (
+        <div className="opt-compare">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th className="num">Actual</th>
+              <th className="num">Optimizada</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Poder final</td>
+              <td className="num">{formatPower(roomTotals.finalPower)}</td>
+              <td className="num">
+                {formatPower(resultFinal)}
+                {resultFinal !== roomTotals.finalPower && (
+                  <span className={`opt-delta ${resultFinal > roomTotals.finalPower ? "up" : "down"}`}>
+                    {resultFinal > roomTotals.finalPower ? "+" : ""}
+                    {formatPower(resultFinal - roomTotals.finalPower)}
+                  </span>
+                )}
+              </td>
+            </tr>
+            <tr>
+              <td>Bonus</td>
+              <td className="num">+{bpToPct(roomTotals.bonusBp)}</td>
+              <td className="num">
+                +{bpToPct(r.bonus_bp)}
+                {r.bonus_bp !== roomTotals.bonusBp && (
+                  <span className={`opt-delta ${r.bonus_bp < roomTotals.bonusBp ? "up" : ""}`}>
+                    {r.bonus_bp > roomTotals.bonusBp ? "+" : "−"}
+                    {bpToPct(Math.abs(r.bonus_bp - roomTotals.bonusBp))}
+                  </span>
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      )}
 
       {!improved ? (
         <div className="muted" style={{ padding: "6px 0" }}>

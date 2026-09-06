@@ -5,6 +5,7 @@ import { totalsFor } from "../calc";
 import MinerSprite from "./MinerSprite";
 import { ROOM_DND_MIME } from "./RoomRacks";
 import { useDragState } from "../dragState";
+import { useUndo } from "../undoState";
 import type { CatalogMiner } from "../types";
 
 export default function PlannedTable() {
@@ -13,6 +14,8 @@ export default function PlannedTable() {
   const setPlanned = useStore((s) => s.setPlanned);
   const clearPlanned = useStore((s) => s.clearPlanned);
   const addPlanned = useStore((s) => s.addPlanned);
+  const inventory = useStore((s) => s.inventory);
+  const offerUndo = useUndo((s) => s.offer);
   const setDraggingWidth = useDragState((s) => s.setWidth);
 
   const list = sortInventory(rawList, invSort);
@@ -41,7 +44,14 @@ export default function PlannedTable() {
               +{totals.miners} mineros
             </span>
           )}
-          <button className="tiny" onClick={clearPlanned} disabled={!list.length}>
+          <button
+            className="tiny"
+            onClick={() => {
+              offerUndo("Nueva adquisición vaciada.", inventory);
+              clearPlanned();
+            }}
+            disabled={!list.length}
+          >
             vaciar
           </button>
         </div>

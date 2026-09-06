@@ -11,6 +11,7 @@ import DataIO from "./components/DataIO";
 import PasteInventory from "./components/PasteInventory";
 import NavBar, { type View } from "./components/NavBar";
 import Estrategia12h from "./components/Estrategia12h";
+import UndoToast from "./components/UndoToast";
 
 const VIEW_KEY = "roller-view";
 function loadView(): View {
@@ -161,6 +162,8 @@ export default function App() {
         </div>
         <InventoryTable />
       </div>
+
+      <UndoToast />
         </>
       )}
     </div>

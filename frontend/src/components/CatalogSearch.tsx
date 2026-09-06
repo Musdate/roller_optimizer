@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchCatalog, refreshCatalog, checkCatalog, errMsg } from "../api";
 import { useCatalogPoll } from "../catalogPoll";
+import { useStore } from "../store";
 import { useDragState } from "../dragState";
 import { useCooldown } from "../useCooldown";
 import { ROOM_DND_MIME } from "./RoomRacks";
@@ -19,6 +20,14 @@ import type { CatalogMiner } from "../types";
 const CHECK_COOLDOWN_MS = 30_000;
 const REFRESH_COOLDOWN_MS = 15_000;
 
+function AddArrow() {
+  return (
+    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+      <path d="M5 12h13M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function CooldownBar({ durationMs, cooldownKey }: { durationMs: number; cooldownKey: number }) {
   return (
     <div
@@ -36,6 +45,9 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
   const [err, setErr] = useState<string | null>(null);
   const [refreshMsg, setRefreshMsg] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const addFromCatalog = useStore((s) => s.addFromCatalog);
+  const addPlanned = useStore((s) => s.addPlanned);
+  const inventory = useStore((s) => s.inventory);
   const setDraggingWidth = useDragState((s) => s.setWidth);
   const debounce = useRef<number>();
   const checkCooldown = useCooldown(CHECK_COOLDOWN_MS);
@@ -148,7 +160,10 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
       {err && <div className="err">{err}</div>}
       {loading && <div className="muted">cargando…</div>}
       <div className="scroll">
-        {rows.map((m) => (
+        {rows.map((m) => {
+          const owned = inventory[m.id]?.quantity ?? 0;
+          const planned = inventory[m.id]?.planned ?? 0;
+          return (
           <div
             className="list-item"
             key={m.id}
@@ -173,10 +188,31 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
               </div>
               <div className="sub">
                 {formatPower(BigInt(m.power))} · +{bpToPct(m.bonus_bp)} · {m.width} celda{m.width > 1 ? "s" : ""}
+                {owned > 0 && ` · tienes ${owned}`}
+                {planned > 0 && ` · planeo ${planned}`}
               </div>
             </div>
+            <div className="list-item-actions">
+              <button
+                className="tiny cat-add"
+                title="Sumar 1 a Mi inventario"
+                onClick={() => addFromCatalog(m, 1)}
+              >
+                <span>inventario</span>
+                <AddArrow />
+              </button>
+              <button
+                className="tiny cat-add"
+                title="Sumar 1 a Nueva adquisición"
+                onClick={() => addPlanned(m, 1)}
+              >
+                <span>nuevo</span>
+                <AddArrow />
+              </button>
+            </div>
           </div>
-        ))}
+          );
+        })}
         {!loading && rows.length === 0 && <div className="muted">sin resultados</div>}
       </div>
     </div>

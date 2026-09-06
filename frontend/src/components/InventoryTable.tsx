@@ -13,6 +13,7 @@ import { inventoryTotals } from "../calc";
 import MinerSprite from "./MinerSprite";
 import { ROOM_DND_MIME } from "./RoomRacks";
 import { useDragState } from "../dragState";
+import { useUndo } from "../undoState";
 import type { CatalogMiner } from "../types";
 
 export default function InventoryTable() {
@@ -25,6 +26,8 @@ export default function InventoryTable() {
   const unplaceFromRoom = useStore((s) => s.unplaceFromRoom);
   const remove = useStore((s) => s.remove);
   const clear = useStore((s) => s.clearInventory);
+  const inventory = useStore((s) => s.inventory);
+  const offerUndo = useUndo((s) => s.offer);
   const setDraggingWidth = useDragState((s) => s.setWidth);
   const [term, setTerm] = useState("");
 
@@ -70,7 +73,14 @@ export default function InventoryTable() {
               </option>
             ))}
           </select>
-          <button className="tiny" onClick={clear} disabled={!fullList.length}>
+          <button
+            className="tiny"
+            onClick={() => {
+              offerUndo("Inventario vaciado.", inventory);
+              clear();
+            }}
+            disabled={!fullList.length}
+          >
             vaciar
           </button>
         </div>

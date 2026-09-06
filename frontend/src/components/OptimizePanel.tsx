@@ -138,7 +138,7 @@ export default function OptimizePanel() {
       )}
 
       {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
-      {result && <ResultView result={result} />}
+      {result && <ResultView result={result} maxCells={maxCells} />}
     </div>
   );
 }
