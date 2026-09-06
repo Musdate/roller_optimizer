@@ -44,10 +44,18 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
       .map((it) => ({ item: it, count: it.inRoom ?? 0 })),
   );
   const noPicks = r.picks.length === 0;
+  // Comparar el poder final COMO SE MUESTRA (redondeado a la unidad), no el
+  // valor exacto en GH/s: si la sala actual y la propuesta se ven las dos
+  // como "49.999 EH/s", la diferencia de ~0.0001 EH no es una mejora real y
+  // no vale la pena proponer cambios. Solo cuenta como mejora si sube el
+  // poder mostrado, o si a poder mostrado igual el bonus usado es menor.
+  const resultFinal = BigInt(r.final_power);
+  const shownEqual =
+    formatPower(resultFinal) === formatPower(roomTotals.finalPower);
   const improved =
     !noPicks &&
-    (BigInt(r.final_power) > roomTotals.finalPower ||
-      (BigInt(r.final_power) === roomTotals.finalPower && r.bonus_bp < roomTotals.bonusBp));
+    ((resultFinal > roomTotals.finalPower && !shownEqual) ||
+      (shownEqual && r.bonus_bp < roomTotals.bonusBp));
 
   function useAsRoom() {
     applyRoom(pickCounts);
@@ -111,7 +119,8 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
             </thead>
             <tbody>
               {r.picks.map((p) => {
-                const isNew = !roomNow[p.id];
+                const inRoomBefore = roomNow[p.id] ?? 0;
+                const addedToRoom = p.count - inRoomBefore;
                 const owned = inventory[p.id]?.quantity ?? 0;
                 const toBuy = Math.max(0, p.count - owned);
                 return (
@@ -131,7 +140,12 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                         />
                         <span className="name-row">
                           {p.name || <span className="muted">custom</span>}
-                          {isNew && <span className="tag new">Nuevo</span>}
+                          {inRoomBefore === 0 && <span className="tag new">Nuevo</span>}
+                          {inRoomBefore > 0 && addedToRoom > 0 && (
+                            <span className="tag new">
+                              +{addedToRoom} nuevo{addedToRoom > 1 ? "s" : ""}
+                            </span>
+                          )}
                           {toBuy > 0 && <span className="tag buy">comprar {toBuy}</span>}
                         </span>
                       </div>

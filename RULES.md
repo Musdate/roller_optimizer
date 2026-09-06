@@ -147,10 +147,19 @@ Entre todas las combinaciones válidas se elige, **en este orden**:
 Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
 
 - Cada pick que **no estaba** en la sala lleva tag verde **"Nuevo"**.
+- Un pick que **ya estaba** en la sala pero cuyo `count` sube respecto a las
+  copias puestas (`inRoom`) lleva tag verde **"+N nuevo(s)"**
+  (N = `count − inRoom`).
 - Un pick cuyo `count` supera las copias que tengo (`quantity`) lleva tag ámbar
   **"comprar N"** (N = `count − quantity`, sale de lo planeado).
 - Abajo, sección **"Sale de la sala"**: modelos con `inRoom > 0` que no están en
   ningún pick → tag rojo **"Quitar de sala"**.
+- **"Ya optimizada".** El resultado solo se ofrece como mejora si el poder final
+  **redondeado a como se muestra** (unidad + 3 decimales) sube respecto a la sala
+  actual, o si a poder mostrado igual usa **menos bonus**. Una diferencia que
+  igual se ve como el mismo número (p. ej. las dos salas en `49.999 EH/s`) se
+  trata como "tu sala actual ya está optimizada". Comparar el valor exacto en
+  GH/s haría proponer cambios por mejoras de ~`1e-4` invisibles.
 - Botón **"usar como sala"**: `applyRoom(counts)` — fija `inRoom = count` de cada
   pick (0 para el resto) y, si `count > quantity`, sube `quantity` absorbiendo de
   `planned`. Si la sala ya coincide con el resultado, en vez del botón se muestra
