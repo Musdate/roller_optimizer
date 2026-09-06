@@ -42,6 +42,31 @@ a { color: var(--accent); }
   padding: 20px 16px 60px;
 }
 
+.nav {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.nav-tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.nav-tab:hover {
+  color: var(--text);
+  border-color: transparent;
+}
+.nav-tab.active {
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--text);
+}
+
 .grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -89,8 +89,17 @@ CORS real).
 
 ### Frontend — React + Zustand, sin router
 
-- **`src/store.ts`** — **todo el estado** vive acá (Zustand con `persist` a
-  `localStorage`, clave `roller-optimizer`): inventario, objetivo, nº de salas, y
+- **`src/App.tsx` + `src/components/NavBar.tsx`** — navbar de 2 pestañas
+  ("Optimizador de Sala" / "Estrategia 12h"); la activa se guarda en
+  `localStorage` (`roller-view`). El *polling* de catálogo sigue vivo en ambas.
+- **Vista "Estrategia 12h"** (`src/components/Estrategia12h.tsx` +
+  `src/estrategia12h.ts` lógica pura + `src/estrategia12h.css`) — port React de la
+  app vanilla `barras-12h`: rastrea las barras de 12 h de los 15 minijuegos.
+  Estado propio en `localStorage` (clave `ronda12-data-v3`), independiente del
+  store del optimizador. Estilos con prefijo `s12-` sobre la paleta del optimizador.
+
+- **`src/store.ts`** — **todo el estado del optimizador** vive acá (Zustand con
+  `persist` a `localStorage`, clave `roller-optimizer`): inventario, objetivo, nº de salas, y
   la **sala modelada por posición** (`roomSlots`: 1 entrada por celda física
   0..95; un minero de 2 celdas ocupa un par alineado a estante). `reconcileRoomSlots`
   repara `roomSlots` contra los `inRoom` del inventario. Cada modelo tiene

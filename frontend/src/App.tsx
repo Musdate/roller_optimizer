@@ -9,6 +9,17 @@ import PlannedTable from "./components/PlannedTable";
 import OptimizePanel from "./components/OptimizePanel";
 import DataIO from "./components/DataIO";
 import PasteInventory from "./components/PasteInventory";
+import NavBar, { type View } from "./components/NavBar";
+import Estrategia12h from "./components/Estrategia12h";
+
+const VIEW_KEY = "roller-view";
+function loadView(): View {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "estrategia12h" ? "estrategia12h" : "optimizer";
+  } catch {
+    return "optimizer";
+  }
+}
 
 export default function App() {
   const [backendDown, setBackendDown] = useState(false);
@@ -17,7 +28,16 @@ export default function App() {
   const [progressDone, setProgressDone] = useState(0);
   const [progressTotal, setProgressTotal] = useState(0);
   const [showPaste, setShowPaste] = useState(false);
+  const [view, setView] = useState<View>(loadView);
   const pollTick = useCatalogPoll((s) => s.tick);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      // localStorage no disponible: la pestaña activa no se recuerda, nada más.
+    }
+  }, [view]);
 
   useEffect(() => {
     let alive = true;
@@ -86,6 +106,12 @@ export default function App() {
 
   return (
     <div className="app">
+      <NavBar view={view} onChange={setView} />
+
+      {view === "estrategia12h" ? (
+        <Estrategia12h />
+      ) : (
+        <>
       <div className="row between" style={{ marginBottom: 12 }}>
         <h1 style={{ margin: 0 }}>Optimizador de sala</h1>
         <div className="row" style={{ gap: 6 }}>
@@ -135,6 +161,8 @@ export default function App() {
         </div>
         <InventoryTable />
       </div>
+        </>
+      )}
     </div>
   );
 }
