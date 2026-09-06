@@ -335,7 +335,6 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
 }
 .opt-delta.up { color: var(--good); }
 .opt-delta.down { color: var(--bad); }
-.opt-over { color: var(--bad); font-weight: 700; }
 
 .undo-toast {
   position: fixed;

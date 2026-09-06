@@ -13,13 +13,7 @@ const STATUS_LABEL: Record<string, string> = {
   unknown: "desconocido",
 };
 
-export default function ResultView({
-  result: r,
-  maxCells,
-}: {
-  result: OptimizeResponse;
-  maxCells: number;
-}) {
+export default function ResultView({ result: r }: { result: OptimizeResponse }) {
   const inventory = useStore((s) => s.inventory);
   const applyRoom = useStore((s) => s.applyRoom);
   const offerUndo = useUndo((s) => s.offer);
