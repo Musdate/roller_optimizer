@@ -24,7 +24,7 @@ export default function InventoryTable() {
   const addFromCatalog = useStore((s) => s.addFromCatalog);
   const placeInRoomAt = useStore((s) => s.placeInRoomAt);
   const unplaceFromRoom = useStore((s) => s.unplaceFromRoom);
-  const remove = useStore((s) => s.remove);
+  const setQuantity = useStore((s) => s.setQuantity);
   const clear = useStore((s) => s.clearInventory);
   const inventory = useStore((s) => s.inventory);
   const offerUndo = useUndo((s) => s.offer);
@@ -163,7 +163,11 @@ export default function InventoryTable() {
                   <td className="num">{it.quantity}</td>
                   <td className="num">{it.inRoom ?? 0}</td>
                   <td className="num">
-                    <button className="tiny" onClick={() => remove(it.id)}>
+                    <button
+                      className="tiny"
+                      title="Quitar del inventario (las copias en la sala se quedan)"
+                      onClick={() => setQuantity(it.id, it.inRoom ?? 0)}
+                    >
                       ✕
                     </button>
                   </td>

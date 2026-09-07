@@ -336,6 +336,34 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
 .opt-delta.up { color: var(--good); }
 .opt-delta.down { color: var(--bad); }
 
+/* Sala ya optimizada: aviso grande y en verde. */
+.opt-done {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 12px 0;
+  padding: 16px 18px;
+  background: color-mix(in srgb, var(--good) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--good) 45%, transparent);
+  border-radius: 12px;
+}
+.opt-done-check {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--good);
+  color: var(--panel);
+  font-size: 20px;
+  font-weight: 900;
+}
+.opt-done-text { display: flex; flex-direction: column; gap: 2px; }
+.opt-done-text b { font-size: 17px; color: var(--good); }
+.opt-done-text span { font-size: 13px; color: color-mix(in srgb, var(--good) 75%, var(--text)); }
+
 .undo-toast {
   position: fixed;
   left: 50%;

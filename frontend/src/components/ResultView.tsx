@@ -99,7 +99,7 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
         {BigInt(r.headroom) > 0n && <> · faltan {formatPower(BigInt(r.headroom))}</>}
       </div>
 
-      {(r.picks.length > 0 || roomTotals.miners > 0) && (
+      {improved && (
         <div className="opt-compare">
         <table>
           <thead>
@@ -142,11 +142,19 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
       )}
 
       {!improved ? (
-        <div className="muted" style={{ padding: "6px 0" }}>
-          {noPicks
-            ? "Ninguna combinación mejora la sala vacía bajo ese objetivo."
-            : "Tu sala actual ya está optimizada — no se encontró ninguna combinación mejor."}
-        </div>
+        noPicks ? (
+          <div className="muted" style={{ padding: "6px 0" }}>
+            Ninguna combinación mejora la sala vacía bajo ese objetivo.
+          </div>
+        ) : (
+          <div className="opt-done">
+            <span className="opt-done-check">✓</span>
+            <div className="opt-done-text">
+              <b>Tu sala ya está optimizada</b>
+              <span>No hay ninguna combinación mejor para ese objetivo.</span>
+            </div>
+          </div>
+        )
       ) : (
         <>
           <div className="row between" style={{ marginBottom: 6 }}>
