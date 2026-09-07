@@ -109,8 +109,8 @@ Entre todas las combinaciones válidas se elige, **en este orden**:
   mineros).
 - Es un **máximo**, no hay que llenarlo.
 - **Poder objetivo (UI)**: input numérico + selector **PH/s, EH/s, ZH/s**.
-  `time_limit_s` fijo en **30 s** (no expuesto; el backend lo parte en 2 pasadas
-  de 15 s). Mientras corre, el botón muestra `optimizando sala… Ns / máx 30s`.
+  `time_limit_s` fijo en **60 s** (no expuesto; el backend lo parte en 2 pasadas
+  de 30 s). Mientras corre, el botón muestra `optimizando sala… Ns / máx 60s`.
   No se muestra la conversión de unidades debajo del input.
 
 ### 5.5 "En sala" vs "Mi inventario" (solo UI, no afecta al optimizador)

@@ -7,7 +7,7 @@ import ResultView from "./ResultView";
 
 const UNITS: TargetUnit[] = ["PH", "EH", "ZH"];
 const ROOM_OPTS = Array.from({ length: MAX_ROOMS }, (_, i) => i + 1);
-const TIME_LIMIT_S = 30;
+const TIME_LIMIT_S = 60;
 
 export default function OptimizePanel() {
   const list = useStore(selectOptimizeList);

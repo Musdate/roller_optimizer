@@ -29,7 +29,7 @@ from .paste import parse_inventory
 
 app = FastAPI(title="Optimizador Sala RollerCoin", version="0.1.0")
 
-# El solver de OR-Tools puede tardar hasta `time_limit_s` (30s desde el
+# El solver de OR-Tools puede tardar hasta `time_limit_s` (60s desde el
 # frontend) y suele usar varios núcleos por sí solo -- en un VPS chico, unas
 # pocas optimizaciones a la vez alcanzan para saturar la CPU y poner lenta
 # TODA la app (y de paso a lo que sea que comparta servidor). Con un solo
