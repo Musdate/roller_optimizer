@@ -61,6 +61,24 @@ function findFirstFit(slots: (string | null)[], width: number): number | null {
   return null;
 }
 
+/** Copia de `slots` con la celda `cellIndex` (y su par de estante si el
+ *  minero ocupa 2 celdas) vaciada. */
+function clearRoomCell(
+  slots: (string | null)[],
+  cellIndex: number,
+  width: number,
+): (string | null)[] {
+  const next = [...slots];
+  if (width >= 2) {
+    const shelfStart = cellIndex - (cellIndex % 2);
+    next[shelfStart] = null;
+    next[shelfStart + 1] = null;
+  } else {
+    next[cellIndex] = null;
+  }
+  return next;
+}
+
 /** Repara `slots` para que coincida con los `inRoom` actuales del
  *  inventario: recorta copias de más (desde el final) y agrega las que
  *  falten en el primer hueco libre. Pura — no muta. */
@@ -156,10 +174,17 @@ interface State {
   /** Pasa una copia del inventario a la celda dada (drag&drop). Sin celda
    *  (o si está ocupada) cae en el primer hueco compatible. */
   placeInRoomAt: (id: string, atCellIndex?: number) => void;
-  /** Saca de la sala lo que ocupa la celda `cellIndex`. */
+  /** Saca de la sala lo que ocupa la celda `cellIndex` y lo devuelve al
+   *  banco (solo baja `inRoom`). */
   unplaceFromRoom: (cellIndex: number) => void;
+  /** Saca de la sala lo que ocupa la celda `cellIndex` y elimina esa copia
+   *  (baja `quantity` con `inRoom`): no vuelve al banco. */
+  removeFromRoom: (cellIndex: number) => void;
   /** Mueve dentro de la sala (drag&drop entre celdas). */
   reorderRoomSlot: (fromCellIndex: number, toCellIndex: number) => void;
+  /** Vacía la sala por completo: quita todos los mineros puestos sin
+   *  devolverlos al banco (baja `quantity` en lo que estaba en sala). */
+  clearRoom: () => void;
   mergeParsedInventory: (
     items: Array<Record<string, unknown>>,
     replace: boolean,
@@ -390,14 +415,7 @@ export const useStore = create<State>()(
           if (id == null) return s;
           const cur = s.inventory[id];
           if (!cur) return s;
-          const next = [...slots];
-          if (cur.width >= 2) {
-            const shelfStart = cellIndex - (cellIndex % 2);
-            next[shelfStart] = null;
-            next[shelfStart + 1] = null;
-          } else {
-            next[cellIndex] = null;
-          }
+          const next = clearRoomCell(slots, cellIndex, cur.width);
           return {
             inventory: {
               ...s.inventory,
@@ -405,6 +423,24 @@ export const useStore = create<State>()(
             },
             roomSlots: next,
           };
+        }),
+
+      removeFromRoom: (cellIndex) =>
+        set((s) => {
+          const slots = reconcileRoomSlots(s.roomSlots, s.inventory);
+          const id = slots[cellIndex];
+          if (id == null) return s;
+          const cur = s.inventory[id];
+          if (!cur) return s;
+          const next = clearRoomCell(slots, cellIndex, cur.width);
+          // Baja `quantity` junto con `inRoom`: esa copia se elimina, no
+          // vuelve al banco.
+          const inRoom = Math.max(0, (cur.inRoom ?? 0) - 1);
+          const quantity = Math.max(0, cur.quantity - 1);
+          const inv = { ...s.inventory };
+          if (quantity <= 0 && (cur.planned ?? 0) <= 0) delete inv[id];
+          else inv[id] = { ...cur, inRoom, quantity };
+          return { inventory: inv, roomSlots: next };
         }),
 
       reorderRoomSlot: (fromCellIndex, toCellIndex) =>
@@ -434,6 +470,17 @@ export const useStore = create<State>()(
           next[spot] = id;
           if (w >= 2) next[spot + 1] = id;
           return { roomSlots: next };
+        }),
+
+      clearRoom: () =>
+        set((s) => {
+          const inv: Record<string, InventoryItem> = {};
+          for (const [id, it] of Object.entries(s.inventory)) {
+            const quantity = Math.max(0, it.quantity - (it.inRoom ?? 0));
+            if (quantity <= 0 && (it.planned ?? 0) <= 0) continue;
+            inv[id] = { ...it, quantity, inRoom: 0 };
+          }
+          return { inventory: inv, roomSlots: Array(ROOM1_CELLS).fill(null) };
         }),
 
       mergeParsedInventory: (items, replace) =>

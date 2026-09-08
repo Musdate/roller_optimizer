@@ -60,7 +60,7 @@ export default function RoomRacks() {
   const inventory = useStore((s) => s.inventory);
   const addFromCatalog = useStore((s) => s.addFromCatalog);
   const placeInRoomAt = useStore((s) => s.placeInRoomAt);
-  const unplaceFromRoom = useStore((s) => s.unplaceFromRoom);
+  const removeFromRoom = useStore((s) => s.removeFromRoom);
   const reorderRoomSlot = useStore((s) => s.reorderRoomSlot);
   const draggingWidth = useDragState((s) => s.width);
   const setDraggingWidth = useDragState((s) => s.setWidth);
@@ -156,7 +156,7 @@ export default function RoomRacks() {
         className={`rack-slot filled${isOver ? " drag-over" : ""}${isSelected ? " selected" : ""}`}
         style={{ flex: width }}
         draggable
-        title={`${it?.name ?? id} — click para ver info, arrastra fuera de la sala para quitarlo`}
+        title={`${it?.name ?? id} — click para ver info; arrástralo a “Mi inventario” para devolverlo, o a “Suelta aquí” para eliminarlo`}
         onDragStart={(e) => {
           e.dataTransfer.setData(
             ROOM_DND_MIME,
@@ -235,7 +235,7 @@ export default function RoomRacks() {
             <button
               className="tiny"
               onClick={() => {
-                unplaceFromRoom(selectedCell);
+                removeFromRoom(selectedCell);
                 setSelectedCell(null);
               }}
             >
@@ -260,10 +260,10 @@ export default function RoomRacks() {
           setOverKey(null);
           setDraggingWidth(null);
           const p = readPayload(e);
-          if (p?.source === "room" && p.index != null) unplaceFromRoom(p.index);
+          if (p?.source === "room" && p.index != null) removeFromRoom(p.index);
         }}
       >
-        Suelta aquí (o sobre “Mi inventario” ↓) un minero de la sala para sacarlo.
+        Suelta aquí un minero de la sala para <b>eliminarlo</b>
       </div>
 
       <div className="room-summary">

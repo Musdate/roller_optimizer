@@ -54,10 +54,15 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
   const resultFinal = BigInt(r.final_power);
   const shownEqual =
     formatPower(resultFinal) === formatPower(roomTotals.finalPower);
+  const pickMiners = r.picks.reduce((n, p) => n + p.count, 0);
+  const fewerMiners = pickMiners < roomTotals.miners;
   const improved =
     !noPicks &&
     ((resultFinal > roomTotals.finalPower && !shownEqual) ||
-      (shownEqual && r.bonus_bp < roomTotals.bonusBp));
+      (shownEqual && r.bonus_bp < roomTotals.bonusBp) ||
+      // Mismo poder mostrado y mismo bonus, pero con menos mineros: igual
+      // conviene (menos celdas ocupadas, menos mineros que mantener).
+      (shownEqual && r.bonus_bp === roomTotals.bonusBp && fewerMiners));
 
   function useAsRoom() {
     offerUndo("Sala optimizada aplicada.", inventory);
@@ -136,6 +141,19 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                 )}
               </td>
             </tr>
+            {pickMiners !== roomTotals.miners && (
+              <tr>
+                <td>Mineros</td>
+                <td className="num">{roomTotals.miners}</td>
+                <td className="num">
+                  {pickMiners}
+                  <span className={`opt-delta ${fewerMiners ? "up" : ""}`}>
+                    {pickMiners > roomTotals.miners ? "+" : "−"}
+                    {Math.abs(pickMiners - roomTotals.miners)}
+                  </span>
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
         </div>
@@ -197,7 +215,11 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                         />
                         <span className="name-row">
                           {p.name || <span className="muted">custom</span>}
-                          {inRoomBefore === 0 && <span className="tag new">Nuevo</span>}
+                          {inRoomBefore === 0 && (
+                            <span className="tag new">
+                              {p.count > 1 ? `+${p.count} Nuevos` : "Nuevo"}
+                            </span>
+                          )}
                           {inRoomBefore > 0 && addedToRoom > 0 && (
                             <span className="tag new">
                               +{addedToRoom} nuevo{addedToRoom > 1 ? "s" : ""}

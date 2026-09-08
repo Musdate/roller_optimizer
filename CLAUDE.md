@@ -92,6 +92,8 @@ CORS real).
 - **`src/App.tsx` + `src/components/NavBar.tsx`** — navbar de 2 pestañas
   ("Optimizador de Sala" / "Estrategia 12h"); la activa se guarda en
   `localStorage` (`roller-view`). El *polling* de catálogo sigue vivo en ambas.
+  Además un enlace externo "Minar y Ganar" (no es una vista): abre
+  `minaryganar.com/rollercoin/room-simulator` en otra pestaña.
 - **Vista "Estrategia 12h"** (`src/components/Estrategia12h.tsx` +
   `src/estrategia12h.ts` lógica pura + `src/estrategia12h.css`) — port React de la
   app vanilla `barras-12h`: rastrea las barras de 12 h de los 15 minijuegos.

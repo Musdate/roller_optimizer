@@ -66,6 +66,12 @@ a { color: var(--accent); }
   border-color: var(--border);
   color: var(--text);
 }
+.nav-tab-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
 
 .grid {
   display: grid;

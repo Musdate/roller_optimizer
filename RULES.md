@@ -125,6 +125,16 @@ Entre todas las combinaciones válidas se elige, **en este orden**:
   disponibles fuera de la sala). Un modelo con todas sus copias en la sala
   desaparece de aquí; se saca desde "En sala" bajando su contador.
 - Las cabeceras de las tablas quedan fijas (`position: sticky`) al hacer scroll.
+- Sacar un minero de la sala tiene **dos resultados** según cómo se haga:
+  - **Devolver al banco** (`unplaceFromRoom()`, solo baja `inRoom`): al
+    arrastrarlo desde la sala y soltarlo sobre el panel **"Mi inventario"**.
+  - **Eliminarlo** (`removeFromRoom()`, baja `inRoom` **y** `quantity`; **no**
+    vuelve al banco): con el botón **"Quitar de la sala"** de la card de detalle,
+    o soltándolo en la zona **"Suelta aquí"**. Un modelo que queda en
+    `quantity 0` sin `planned` desaparece del inventario.
+- Botón **"vaciar la sala"** (icono de escoba, junto al de sincronizar en "Mi
+  sala"): `clearRoom()` — elimina toda la sala de una: `inRoom = 0`, baja
+  `quantity` en esas copias, `roomSlots` queda vacío. Sin confirmación.
 - **Exportar / importar** (botones arriba del todo, junto al título): guardan y
   restauran **todo** el estado en un JSON `{ version, rooms, inventory: [...] }`
   — cada ítem lleva `quantity`, `inRoom` y `planned`, así que cubre sala,
@@ -146,7 +156,8 @@ Entre todas las combinaciones válidas se elige, **en este orden**:
 
 Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
 
-- Cada pick que **no estaba** en la sala lleva tag verde **"Nuevo"**.
+- Cada pick que **no estaba** en la sala lleva tag verde **"Nuevo"** (o
+  **"+N Nuevos"** si el `count` del pick es mayor a 1).
 - Un pick que **ya estaba** en la sala pero cuyo `count` sube respecto a las
   copias puestas (`inRoom`) lleva tag verde **"+N nuevo(s)"**
   (N = `count − inRoom`).
@@ -154,12 +165,18 @@ Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
   **"comprar N"** (N = `count − quantity`, sale de lo planeado).
 - Abajo, sección **"Sale de la sala"**: modelos con `inRoom > 0` que no están en
   ningún pick → tag rojo **"Quitar de sala"**.
-- **"Ya optimizada".** El resultado solo se ofrece como mejora si el poder final
-  **redondeado a como se muestra** (unidad + 3 decimales) sube respecto a la sala
-  actual, o si a poder mostrado igual usa **menos bonus**. Una diferencia que
-  igual se ve como el mismo número (p. ej. las dos salas en `49.999 EH/s`) se
-  trata como "tu sala actual ya está optimizada". Comparar el valor exacto en
-  GH/s haría proponer cambios por mejoras de ~`1e-4` invisibles.
+- **"Ya optimizada".** El resultado solo se ofrece como mejora si, respecto a la
+  sala actual:
+  1. el poder final **redondeado a como se muestra** (unidad + 3 decimales)
+     sube; o
+  2. a poder mostrado igual, usa **menos bonus**; o
+  3. a poder mostrado igual **y** mismo bonus, usa **menos mineros**
+     (`Σ count < Σ inRoom`) — libera celdas y son menos mineros que mantener.
+
+  Una diferencia de poder que igual se ve como el mismo número (p. ej. las dos
+  salas en `49.999 EH/s`) no cuenta: comparar el valor exacto en GH/s haría
+  proponer cambios por mejoras de ~`1e-4` invisibles. Cuando la mejora es solo
+  la nº 3, la tabla de comparación agrega una fila **"Mineros"** con el delta.
 - Botón **"usar como sala"**: `applyRoom(counts)` — fija `inRoom = count` de cada
   pick (0 para el resto) y, si `count > quantity`, sube `quantity` absorbiendo de
   `planned`. Si la sala ya coincide con el resultado, en vez del botón se muestra
