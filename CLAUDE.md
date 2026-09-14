@@ -119,7 +119,7 @@ CORS real).
 
 ### Comparación de resultado (RULES.md §5.7)
 
-Tras optimizar, el resultado se compara con la sala actual (`inRoom`) y solo se
-ofrece como mejora si el poder final **redondeado a como se muestra** (unidad + 3
-decimales) sube, o si a poder mostrado igual usa menos bonus — no por diferencias
-sub-visibles en GH/s exactos.
+Tras optimizar, el resultado se compara con la sala actual (`inRoom`) en
+cascada — el primer criterio que difiere decide: (1) mayor poder final
+**redondeado a como se muestra** (unidad + 3 decimales, no GH/s exactos),
+(2) menos bonus, (3) mayor poder bruto, (4) menos mineros.

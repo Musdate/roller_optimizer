@@ -46,11 +46,9 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
       .map((it) => ({ item: it, count: it.inRoom ?? 0 })),
   );
   const noPicks = r.picks.length === 0;
-  // Comparar el poder final COMO SE MUESTRA (redondeado a la unidad), no el
-  // valor exacto en GH/s: si la sala actual y la propuesta se ven las dos
-  // como "49.999 EH/s", la diferencia de ~0.0001 EH no es una mejora real y
-  // no vale la pena proponer cambios. Solo cuenta como mejora si sube el
-  // poder mostrado, o si a poder mostrado igual el bonus usado es menor.
+  // Comparación en cascada (RULES.md §5.7): el primer criterio que difiere
+  // decide. El poder final se compara COMO SE MUESTRA: si las dos salas se ven
+  // como "49.999 EH/s", una diferencia de ~0.0001 EH no es una mejora real.
   const resultFinal = BigInt(r.final_power);
   const resultRaw = BigInt(r.raw_power);
   const shownEqual =
@@ -59,11 +57,13 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
   const fewerMiners = pickMiners < roomTotals.miners;
   const improved =
     !noPicks &&
-    ((resultFinal > roomTotals.finalPower && !shownEqual) ||
-      (shownEqual && r.bonus_bp < roomTotals.bonusBp) ||
-      // Mismo poder mostrado y mismo bonus, pero con menos mineros: igual
-      // conviene (menos celdas ocupadas, menos mineros que mantener).
-      (shownEqual && r.bonus_bp === roomTotals.bonusBp && fewerMiners));
+    (!shownEqual
+      ? resultFinal > roomTotals.finalPower
+      : r.bonus_bp !== roomTotals.bonusBp
+        ? r.bonus_bp < roomTotals.bonusBp
+        : resultRaw !== roomTotals.rawPower
+          ? resultRaw > roomTotals.rawPower
+          : fewerMiners);
 
   function useAsRoom() {
     offerUndo("Sala optimizada aplicada.", inventory);

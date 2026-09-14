@@ -161,22 +161,30 @@ Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
 - Un pick que **ya estaba** en la sala pero cuyo `count` sube respecto a las
   copias puestas (`inRoom`) lleva tag verde **"+N nuevo(s)"**
   (N = `count − inRoom`).
+- Un pick que **ya estaba** en la sala pero cuyo `count` baja respecto a
+  `inRoom` lleva tag rojo **"−N sale(n)"** (N = `inRoom − count`).
 - Un pick cuyo `count` supera las copias que tengo (`quantity`) lleva tag ámbar
   **"comprar N"** (N = `count − quantity`, sale de lo planeado).
-- Abajo, sección **"Sale de la sala"**: modelos con `inRoom > 0` que no están en
-  ningún pick → tag rojo **"Quitar de sala"**.
-- **"Ya optimizada".** El resultado solo se ofrece como mejora si, respecto a la
-  sala actual:
-  1. el poder final **redondeado a como se muestra** (unidad + 3 decimales)
-     sube; o
-  2. a poder mostrado igual, usa **menos bonus**; o
-  3. a poder mostrado igual **y** mismo bonus, usa **menos mineros**
-     (`Σ count < Σ inRoom`) — libera celdas y son menos mineros que mantener.
+- Abajo, sección **"Sale de la sala"**: modelos con `inRoom > 0` cuyo `count`
+  en los picks es menor a `inRoom` (0 si no están). Si salen todas las copias →
+  tag rojo **"Quitar de sala"**; si salen solo algunas → tag rojo **"−N"**
+  (N = `inRoom − count`).
+- **"Ya optimizada".** El resultado se compara con la sala actual en cascada,
+  en este orden; el **primer criterio que difiere decide** (si mejora se ofrece,
+  si empeora no), y si todos son iguales no se ofrece:
+  1. poder final **redondeado a como se muestra** (unidad + 3 decimales):
+     mayor es mejor;
+  2. bonus usado: **menor** es mejor;
+  3. poder bruto de mineros (GH/s exactos): **mayor** es mejor;
+  4. cantidad de mineros (`Σ count` vs `Σ inRoom`): **menor** es mejor — libera
+     celdas y son menos mineros que mantener.
 
-  Una diferencia de poder que igual se ve como el mismo número (p. ej. las dos
-  salas en `49.999 EH/s`) no cuenta: comparar el valor exacto en GH/s haría
-  proponer cambios por mejoras de ~`1e-4` invisibles. Cuando la mejora es solo
-  la nº 3, la tabla de comparación agrega una fila **"Mineros"** con el delta.
+  Una diferencia de poder final que igual se ve como el mismo número (p. ej. las
+  dos salas en `49.999 EH/s`) no cuenta en el criterio 1: comparar el valor
+  exacto en GH/s haría proponer cambios por mejoras de ~`1e-4` invisibles.
+- Tabla de comparación (Actual / Optimizada, con delta): filas **"Poder
+  final"**, **"Poder mineros"** y **"Bonus"** siempre; fila **"Mineros"** solo
+  si la cantidad cambia.
 - Botón **"usar como sala"**: `applyRoom(counts)` — fija `inRoom = count` de cada
   pick (0 para el resto) y, si `count > quantity`, sube `quantity` absorbiendo de
   `planned`. Si la sala ya coincide con el resultado, en vez del botón se muestra
