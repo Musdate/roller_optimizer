@@ -29,10 +29,10 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
   const pickCounts: Record<string, number> = {};
   for (const p of r.picks) pickCounts[p.id] = p.count;
 
-  // Mineros que estaban en la sala y ya no aparecen en la optimización.
-  const removed = Object.values(inventory).filter(
-    (it) => (it.inRoom ?? 0) > 0 && !pickCounts[it.id],
-  );
+  // Mineros que estaban en la sala y salen (todas o algunas de sus copias).
+  const removed = Object.values(inventory)
+    .map((it) => ({ it, out: (it.inRoom ?? 0) - (pickCounts[it.id] ?? 0) }))
+    .filter(({ out }) => out > 0);
 
   // La combinación propuesta puede usar mineros distintos a los que ya
   // tenías puestos y aun así no mejorar nada (mismo poder final, mismo
@@ -52,6 +52,7 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
   // no vale la pena proponer cambios. Solo cuenta como mejora si sube el
   // poder mostrado, o si a poder mostrado igual el bonus usado es menor.
   const resultFinal = BigInt(r.final_power);
+  const resultRaw = BigInt(r.raw_power);
   const shownEqual =
     formatPower(resultFinal) === formatPower(roomTotals.finalPower);
   const pickMiners = r.picks.reduce((n, p) => n + p.count, 0);
@@ -124,6 +125,23 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                   <span className={`opt-delta ${resultFinal > roomTotals.finalPower ? "up" : "down"}`}>
                     {resultFinal > roomTotals.finalPower ? "+" : ""}
                     {formatPower(resultFinal - roomTotals.finalPower)}
+                  </span>
+                )}
+              </td>
+            </tr>
+            <tr>
+              <td>Poder mineros</td>
+              <td className="num">{formatPower(roomTotals.rawPower)}</td>
+              <td className="num">
+                {formatPower(resultRaw)}
+                {resultRaw !== roomTotals.rawPower && (
+                  <span className={`opt-delta ${resultRaw > roomTotals.rawPower ? "up" : "down"}`}>
+                    {resultRaw > roomTotals.rawPower ? "+" : "−"}
+                    {formatPower(
+                      resultRaw > roomTotals.rawPower
+                        ? resultRaw - roomTotals.rawPower
+                        : roomTotals.rawPower - resultRaw,
+                    )}
                   </span>
                 )}
               </td>
@@ -225,6 +243,11 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                               +{addedToRoom} nuevo{addedToRoom > 1 ? "s" : ""}
                             </span>
                           )}
+                          {addedToRoom < 0 && (
+                            <span className="tag remove">
+                              −{-addedToRoom} sale{addedToRoom < -1 ? "n" : ""}
+                            </span>
+                          )}
                           {toBuy > 0 && <span className="tag buy">comprar {toBuy}</span>}
                         </span>
                       </div>
@@ -244,14 +267,16 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
               <h3 style={{ marginBottom: 6 }}>Sale de la sala</h3>
               <table>
                 <tbody>
-                  {removed.map((it) => (
+                  {removed.map(({ it, out }) => (
                     <tr key={it.id}>
                       <td>
                         <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
                           <MinerSprite url={it.image ?? ""} width={it.width} size={28} level={it.level} />
                           <span className="name-row">
                             {it.name || <span className="muted">custom</span>}
-                            <span className="tag remove">Quitar de sala</span>
+                            <span className="tag remove">
+                              {out === (it.inRoom ?? 0) ? "Quitar de sala" : `−${out}`}
+                            </span>
                           </span>
                         </div>
                       </td>
