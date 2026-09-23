@@ -484,3 +484,109 @@ Números que pueden exceder `2^53` viajan como **string**. El frontend usa
 6. **Mineros no-merge.** Por ahora se cubren con entrada manual.
 7. **¿El objetivo es por juego o por sala?** No afecta al algoritmo; el usuario
    ingresa el número que quiera.
+
+---
+
+## 10. Calculadora Freon (vista aparte)
+
+Vista independiente del optimizador: no toca el inventario ni la sala, solo
+calcula el bonus que aporta la máquina de Freon. Datos tomados de la planilla
+`Freon.xlsx` del usuario. Implementación: `frontend/src/freon.ts` (lógica pura)
+y `frontend/src/components/CalculadoraFreon.tsx` (UI).
+
+### 10.1 Módulos
+
+Seis módulos, cada uno con 4 niveles (I…IV). El nivel I es el de partida y es
+gratis; subir cuesta **10 / 25 / 100 RLT** (acumulado por módulo: 135 RLT;
+los seis al máximo: 810 RLT).
+
+| Módulo | Qué hace | I | II | III | IV |
+| --- | --- | --- | --- | --- | --- |
+| Ham Platforms | hámsters trabajando | — | 1 | 2 | 3 |
+| Ham Efficiency | bonus por punto de stat | 1% | 2% | 3% | 5% |
+| Duty Time | tiempo de trabajo | 6 h | 12 h | 18 h | 24 h |
+| Freon Leak Amount | merma por ronda | -9% | -7% | -5% | -3% |
+| Freon Leak Time | duración de la ronda | 6 h | 12 h | 18 h | 24 h |
+| Freon Efficiency | freon extra al cargar | — | +2.5% | +5% | +10% |
+
+### 10.2 Nivel de la máquina
+
+El nivel sale de la **cantidad de mejoras compradas** (suma de los niveles de
+los seis módulos, 0…18) y fija cuánto Freon se puede almacenar:
+
+| Nivel | Mejoras | Límite de Freon | Bonus máx. por Freon |
+| --- | --- | --- | --- |
+| I | 0 | 5.000 | 50% |
+| II | 6 | 50.000 | 500% |
+| III | 12 | 150.000 | 1500% |
+| IV | 18 | 500.000 | 5000% |
+
+### 10.3 Fórmula
+
+**100 Freon = 1% de bonus.** El bonus total se suma al bonus de la sala, así
+que se expresa en bp igual que el resto de la app (§3):
+
+```
+freon_efectivo = min( floor(freon_cargado × (1 + extra%)), límite_del_nivel )
+bonus_freon_bp = freon_efectivo × 100 / 100        # 100 freon = 1% = 100 bp
+bonus_ham_bp   = Σ stat_i × bp_por_stat            # solo los primeros N hámsters,
+                                                   # N = slots de Ham Platforms
+bonus_pico_bp  = bonus_freon_bp + bonus_ham_bp   # mientras el turno está activo
+F = P · (10000 + bonus_pico_bp) / 10000            # misma fórmula que §3
+```
+
+Ese es el **pico**. Lo que rinde a lo largo del día sale de §10.4.
+
+`bp_por_stat` es 100 / 200 / 300 / 500 según Ham Efficiency (1% = 100 bp), así
+que el bonus de hámsters siempre queda en bp enteros.
+
+**Cuidado con las celdas de la planilla**: están guardadas como fracción con
+formato de porcentaje. `0.01` en Ham Efficiency se muestra como **1%**, no como
+0.01%. Lo mismo con la columna "Max Bonus" de las ramas: guarda `45` y `50`,
+que se leen **4500%** (hámsters) y **5000%** (freon).
+
+Referencia de la planilla: con Ham Platforms IV, Ham Efficiency IV y tres
+hámsters de 300 de stat, la rama de hámsters aporta 4500% (3 × 300 × 5%); los
+500.000 Freon del nivel IV aportan 5000%.
+
+### 10.4 Ciclo de los hámsters y poder equivalente
+
+Los hámsters **no** trabajan todos los días: hacen un turno de `duty_time`
+(6/12/18/24 h) y después **descansan 24 h fijas**. El ciclo completo es
+`duty_time + 24`, así que la fracción del tiempo en que el bonus está activo es:
+
+| Duty Time | Turno | Ciclo | Activo |
+| --- | --- | --- | --- |
+| I | 6 h | 30 h | 20.0% |
+| II | 12 h | 36 h | 33.3% |
+| III | 18 h | 42 h | 42.9% |
+| IV | 24 h | 48 h | 50.0% |
+
+El minado de RollerCoin es proporcional al hashrate, así que en vez de calcular
+cripto se calcula el **poder constante equivalente**: el hashrate fijo que mina
+lo mismo que el ciclo real de encendido/apagado. Es un poder, no una cantidad
+acumulada — no se multiplica por días ni por meses. Como el bonus es aditivo (§3), promediar el bonus de los
+hámsters equivale a promediar el poder:
+
+```
+bonus_ham_efectivo = bonus_ham × duty_time / (duty_time + 24)
+bonus_efectivo     = bonus_freon + bonus_ham_efectivo
+poder_equivalente  = poder_final_sala + poder_bruto × bonus_efectivo / 10000
+```
+
+`poder_final_sala` ya trae el bonus de la sala, por eso el aporte del freon se
+suma aparte sobre el poder bruto. Ese `poder_equivalente` es el número que se
+pega en una calculadora de profit externa: ella devuelve el minado diario y
+mensual ya correcto, sin tener que replicarla.
+
+**Supuesto**: el bonus del freon cargado aplica de forma continua (la merma
+sigue corriendo igual) y solo el aporte de los hámsters es intermitente. Si
+resulta que el freon también se corta fuera del turno, el factor del ciclo pasa
+a aplicarse a `bonus_efectivo` completo.
+
+### 10.5 Merma
+
+El Freon se pierde cada ronda: `restante = freon × (1 − merma%)^rondas`, con
+`rondas = floor(duty_time / leak_time)`. La calculadora solo lo muestra como
+referencia (cuánto Freon queda al terminar el turno de los hámsters); el bonus
+que informa es el del momento de cargar.

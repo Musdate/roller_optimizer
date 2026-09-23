@@ -1,0 +1,189 @@
+/* Vista "Calculadora Freon": paleta del optimizador con acento cian de la
+   máquina. Clases con prefijo frn- para no colisionar con el optimizador. */
+
+.frn {
+  --frn-cyan: #46d6d0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.frn-top {
+  display: grid;
+  grid-template-columns: 343px 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 820px) {
+  .frn-top { grid-template-columns: 1fr; }
+}
+
+/* --- escenario decorativo --- */
+
+.frn-scene {
+  position: relative;
+  width: 100%;
+  max-width: 343px;
+  aspect-ratio: 343 / 270;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: url("/freon/scene.png") center / cover no-repeat;
+  image-rendering: pixelated;
+}
+.frn-machine {
+  position: absolute;
+  left: 50%;
+  bottom: 17%;
+  width: 52.5%;
+  transform: translateX(-50%);
+  image-rendering: pixelated;
+  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.55));
+  animation: frn-float 4s ease-in-out infinite;
+}
+@keyframes frn-float {
+  0%, 100% { transform: translate(-50%, 0); }
+  50% { transform: translate(-50%, -4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .frn-machine { animation: none; }
+}
+.frn-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: rgba(15, 17, 21, 0.78);
+  border: 1px solid color-mix(in srgb, var(--frn-cyan) 45%, transparent);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.frn-badge b { color: var(--frn-cyan); font-size: 13px; }
+.frn-badge span { color: var(--muted); }
+
+/* --- entradas --- */
+
+.frn-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.frn-powers {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .frn-powers { grid-template-columns: 1fr; }
+}
+.frn-hams {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.frn-hams input:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.frn-field input { width: 100%; }
+
+/* --- resultado --- */
+
+.frn-result {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.frn-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--frn-cyan) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--frn-cyan) 35%, transparent);
+}
+.frn-hero .k {
+  font-size: 11px;
+  color: var(--frn-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.frn-hero .v {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--frn-cyan);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.frn-gain { color: var(--good); }
+
+/* Un clic selecciona el número entero: si el portapapeles falla (pestaña sin
+   foco, permiso denegado) igual se puede copiar a mano. */
+.frn-hero .v { user-select: all; }
+.frn-copy {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+.frn-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+/* --- módulos --- */
+
+.frn-modules {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px 18px;
+}
+@media (max-width: 620px) {
+  .frn-modules { grid-template-columns: 1fr; }
+}
+.frn-branch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.frn-branch h3 {
+  margin: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.frn-mod {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+}
+.frn-mod .frn-mod-name { display: flex; flex-direction: column; min-width: 0; }
+.frn-mod .frn-mod-name b { font-weight: 600; font-size: 13px; }
+.frn-mod .frn-mod-name span { font-size: 11px; color: var(--muted); }
+.frn-mod select { padding: 3px 7px; font-size: 12px; }
+.frn-mod .frn-mod-val {
+  min-width: 62px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--frn-cyan);
+}
+
+.frn-foot {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}

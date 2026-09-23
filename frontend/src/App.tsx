@@ -11,12 +11,15 @@ import DataIO from "./components/DataIO";
 import PasteInventory from "./components/PasteInventory";
 import NavBar, { type View } from "./components/NavBar";
 import Estrategia12h from "./components/Estrategia12h";
+import CalculadoraFreon from "./components/CalculadoraFreon";
 import UndoToast from "./components/UndoToast";
 
 const VIEW_KEY = "roller-view";
+const VIEWS: View[] = ["optimizer", "freon", "estrategia12h"];
 function loadView(): View {
   try {
-    return localStorage.getItem(VIEW_KEY) === "estrategia12h" ? "estrategia12h" : "optimizer";
+    const v = localStorage.getItem(VIEW_KEY) as View | null;
+    return v && VIEWS.includes(v) ? v : "optimizer";
   } catch {
     return "optimizer";
   }
@@ -111,6 +114,8 @@ export default function App() {
 
       {view === "estrategia12h" ? (
         <Estrategia12h />
+      ) : view === "freon" ? (
+        <CalculadoraFreon />
       ) : (
         <>
       <div className="row between" style={{ marginBottom: 12 }}>

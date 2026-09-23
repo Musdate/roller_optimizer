@@ -1,7 +1,8 @@
-export type View = "optimizer" | "estrategia12h";
+export type View = "optimizer" | "freon" | "estrategia12h";
 
 const TABS: { value: View; label: string }[] = [
   { value: "optimizer", label: "Optimizador de Sala" },
+  { value: "freon", label: "Calculadora Freon" },
   { value: "estrategia12h", label: "Estrategia 12h" },
 ];
 
