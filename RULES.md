@@ -287,17 +287,31 @@ Observaciones verificadas (2026-09-03):
 
 ### 6.1 Caché y rate-limit
 
-- La API **limita agresivamente (429)**. El fetch usa: `_CONCURRENCY = 4`,
-  limitador global `~4 req/s`, y backoff exponencial que honra `Retry-After`.
-  Carga completa (~1444 `get-by-miner-name`): **~6–8 min**.
+- La API **limita agresivamente (429)**. El fetch usa: `_CONCURRENCY = 1`,
+  limitador global `~3 req/s`, pausa de 20 s cada 60 pedidos y backoff
+  exponencial que honra `Retry-After`. Carga completa (~1450
+  `get-by-miner-name`): **~15–20 min**.
 - El repo trae un **snapshot** en `backend/app/data/catalog_seed.json` que se usa
   al arrancar (instantáneo). El backend cachea en `backend/.cache/catalog.json`
   por 7 días.
 - **`refresh()` hace merge**: parte de lo que ya había, así que un refresh
   parcial (algún 429 que no se recuperó) **nunca borra** datos previos.
+- **`refresh()` es incremental**: solo escala los nombres que no tienen su nivel
+  base. Con el seed completo eso son los mineros que RollerCoin agregó desde el
+  snapshot (~1 nombre por día) → **segundos**, no minutos. `refresh(full=True)`
+  re-escala los ~1450 nombres y es la única pasada larga.
+- **Puesta al día automática al arrancar** (`autosync_async`, lanzada desde el
+  `lifespan` de FastAPI): hace un `refresh()` incremental con tope
+  `_AUTOSYNC_MAX_NAMES = 50`. Si faltan más nombres que ese tope, no hace el
+  paso lento (deja el listado masivo mezclado y nada más): esa descarga la
+  decide el usuario. Existe porque en un hosting con **disco efímero** (Render
+  duerme el servicio por inactividad y levanta un contenedor nuevo) se pierde
+  `.cache/catalog.json` y el catálogo retrocede al seed de la imagen.
 - **No** se recarga sola por antigüedad. `/api/health` informa `catalog_stale` y
   `catalog_missing_base` (nombres sin su nivel 1 → fetch incompleto). El usuario
-  recarga con `POST /api/catalog/refresh` (botón "recargar" en la UI).
+  actualiza con `POST /api/catalog/refresh` (botón "actualizar" en la UI, que
+  primero chequea con `/api/catalog/check` y solo trae si falta algo) o fuerza
+  la pasada larga con `?full=true` ("recarga completa").
 
 ### 6.2 Limitaciones conocidas
 
@@ -399,7 +413,10 @@ despreciable (`~ 1e-10` relativo).
 - `GET  /api/health`
 - `GET  /api/catalog?search=<txt>&limit=<n>` — catálogo de modelos (desde
   RollerCoin, cacheado 24 h).
-- `POST /api/catalog/refresh` — fuerza recarga del catálogo.
+- `POST /api/catalog/refresh[?full=true]` — trae los mineros que falten (con
+  `full=true`, re-baja el catálogo entero). Corre en segundo plano.
+- `GET  /api/catalog/check` — chequeo rápido contra RollerCoin:
+  `{remote_names, local_names, new_count, new_names, pending, eta_seconds}`.
 - `POST /api/inventory/parse` — body `{ "text": "<pegado de RollerCoin>" }` →
   `{ items: [{id,name,level,power,bonus_bp,width,quantity,image,matched}],
   skipped: [] }`. Ver §5.8.

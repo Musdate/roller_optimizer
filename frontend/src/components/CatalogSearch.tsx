@@ -9,16 +9,20 @@ import { bpToPct, formatPower } from "../power";
 import MinerSprite from "./MinerSprite";
 import type { CatalogMiner } from "../types";
 
-// "chequear" pega directo a la API de RollerCoin sin ningún candado del
-// lado del backend (a diferencia de "recargar", se puede llamar aunque haya
-// una descarga completa en curso) -- mismo host que ya nos devolvió 429 al
-// sincronizar la sala real con clicks seguidos, así que va con el mismo
-// cooldown. "recargar" en cambio ya está protegido server-side (un segundo
-// click mientras hay una descarga en curso es un no-op inmediato) -- ahí el
-// cooldown es solo para prolijidad de UI, y 15s alcanza de sobra (coincide
-// con el intervalo del polling de /api/health que ya usa la app).
+// "actualizar" chequea contra la API de RollerCoin y, si falta algo, lo trae
+// en el acto: el backend saltea los nombres que ya tienen su nivel base, así
+// que son unos pocos pedidos y termina en segundos. El chequeo pega directo a
+// la API sin ningún candado del lado del backend -- mismo host que ya nos
+// devolvió 429 al sincronizar la sala real con clicks seguidos, así que va
+// con cooldown. "recarga completa" (re-baja los ~1400 nombres) ya está
+// protegida server-side (un segundo click mientras hay una descarga en curso
+// es un no-op inmediato) -- ahí el cooldown es solo para prolijidad de UI, y
+// 15s alcanza de sobra (coincide con el intervalo del polling de /api/health).
 const CHECK_COOLDOWN_MS = 30_000;
 const REFRESH_COOLDOWN_MS = 15_000;
+
+const etaText = (seconds: number): string =>
+  seconds < 90 ? `${Math.max(1, seconds)} s` : `${Math.round(seconds / 60)} min`;
 
 function AddArrow() {
   return (
@@ -77,22 +81,33 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
               disabled={checking || catalogBusy || checkCooldown.active}
               title={
                 checkCooldown.active
-                  ? `Espera ${checkCooldown.secondsLeft}s antes de volver a chequear`
-                  : "Chequeo rápido (unos segundos): compara contra la API de RollerCoin sin bajar todo el catálogo"
+                  ? `Espera ${checkCooldown.secondsLeft}s antes de volver a buscar`
+                  : "Busca mineros nuevos en la API de RollerCoin y trae solo los que falten (unos segundos)"
               }
               onClick={() => {
                 setErr(null);
                 setChecking(true);
                 checkCatalog()
-                  .then((r) =>
-                    setRefreshMsg(
+                  .then((r) => {
+                    if (r.pending === 0) {
+                      setRefreshMsg(
+                        `Estás al día: tienes ${r.local_names} de ${r.remote_names} nombres.`,
+                      );
+                      return;
+                    }
+                    const falta =
                       r.new_count > 0
-                        ? `Tienes ${r.local_names} de ${r.remote_names} nombres — hay ${r.new_count} nuevos${
-                            r.new_names.length ? `: ${r.new_names.slice(0, 8).join(", ")}${r.new_count > 8 ? "…" : ""}` : ""
-                          }.`
-                        : `Tienes ${r.local_names} de ${r.remote_names} nombres — no hay mineros nuevos.`,
-                    ),
-                  )
+                        ? `${r.new_count} minero${r.new_count > 1 ? "s" : ""} nuevo${r.new_count > 1 ? "s" : ""}${
+                            r.new_names.length
+                              ? ` (${r.new_names.slice(0, 5).join(", ")}${r.new_count > 5 ? "…" : ""})`
+                              : ""
+                          }`
+                        : `${r.pending} nombre${r.pending > 1 ? "s" : ""} por completar`;
+                    return refreshCatalog().then(() => {
+                      setRefreshMsg(`Hay ${falta} — trayéndolos (~${etaText(r.eta_seconds)}).`);
+                      useCatalogPoll.getState().requestPoll();
+                    });
+                  })
                   .catch((e) => setErr(errMsg(e)))
                   .finally(() => {
                     setChecking(false);
@@ -100,7 +115,7 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
                   });
               }}
             >
-              {checking ? "chequeando…" : "chequear"}
+              {checking ? "buscando…" : "actualizar"}
             </button>
             {checkCooldown.active && (
               <CooldownBar durationMs={CHECK_COOLDOWN_MS} cooldownKey={checkCooldown.key} />
@@ -115,12 +130,12 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
                   ? "Ya hay una descarga del catálogo en curso"
                   : refreshCooldown.active
                     ? `Espera ${refreshCooldown.secondsLeft}s antes de volver a recargar`
-                    : "Vuelve a bajar todo el catálogo de RollerCoin (~15 min, en segundo plano)"
+                    : "Vuelve a bajar todo el catálogo de RollerCoin (~15 min, en segundo plano). Normalmente alcanza con “actualizar”"
               }
               onClick={() => {
-                if (!confirm("Recargar el catálogo completo desde RollerCoin.\nCorre en segundo plano y tarda ~15 min. ¿Continuar?")) return;
+                if (!confirm("Recargar el catálogo completo desde RollerCoin.\nCorre en segundo plano y tarda ~15 min.\nPara traer solo los mineros nuevos usa “actualizar”. ¿Continuar?")) return;
                 setErr(null);
-                refreshCatalog()
+                refreshCatalog(true)
                   .then((r) => {
                     setRefreshMsg(
                       r.already_running
@@ -136,7 +151,7 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
                   .finally(() => refreshCooldown.trigger());
               }}
             >
-              {catalogBusy ? "descargando…" : "recargar"}
+              {catalogBusy ? "descargando…" : "recarga completa"}
             </button>
             {refreshCooldown.active && (
               <CooldownBar durationMs={REFRESH_COOLDOWN_MS} cooldownKey={refreshCooldown.key} />

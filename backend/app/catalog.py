@@ -39,6 +39,21 @@ _MAX_RETRIES = 5
 _BURST = 60
 _BURST_PAUSE = 20.0
 
+# Tope de nombres que la puesta al día automática del arranque se permite
+# escalar. Con el seed completo aparecen ~1 nombre nuevo por día, así que un
+# arranque normal escala un puñado (segundos). Si faltan más que esto el
+# catálogo está realmente incompleto: eso son 15-20 min y lo dispara el
+# usuario desde la UI, no el arranque.
+_AUTOSYNC_MAX_NAMES = 50
+
+
+def _eta_seconds(requests: int) -> int:
+    """Cuánto tarda hacer `requests` pedidos con el limitador (~3 req/s más
+    la pausa por ráfaga). Sirve para avisar en la UI antes de arrancar."""
+    if requests <= 0:
+        return 0
+    return int(requests / _MAX_RPS + (requests // _BURST) * _BURST_PAUSE)
+
 
 class _RateLimiter:
     def __init__(self, rps: float) -> None:
@@ -169,22 +184,27 @@ def _fetch_ladder(client: httpx.Client, name: str) -> list[dict]:
 
 # nº de nombres cuyo fetch de escalera falló en el último refresh
 last_refresh_failures = 0
+# nº de nombres que el último refresh dejó sin escalar por `max_names`
+last_refresh_skipped = 0
 
 
 def _fetch_all(
     previous: list[dict] | None = None,
     on_total: Callable[[int], None] | None = None,
     on_progress: Callable[[int, list[dict]], None] | None = None,
+    full: bool = False,
+    max_names: int | None = None,
 ) -> list[dict]:
     """`on_total(n)` se llama una vez, apenas se sabe cuántos NOMBRES faltan
     por escalar (después del listado masivo, antes del loop lento).
     `on_progress(done, batch)` se llama después de cada nombre resuelto, con
     el conteo acumulado y los modelos nuevos de ESE nombre (para que quien
     llama pueda ir mezclando el catálogo en vivo, no solo al terminar)."""
-    global last_refresh_failures
+    global last_refresh_failures, last_refresh_skipped
     # arranca de lo que ya teníamos: un refresh parcial nunca pierde datos
     miners: dict[str, dict] = {m["id"]: m for m in (previous or [])}
     failures = 0
+    last_refresh_skipped = 0
 
     with httpx.Client(timeout=60, headers={"User-Agent": "optimizador-roller/0.1"}) as client:
         # 1) resultados API 1..5 (listado masivo)
@@ -194,8 +214,13 @@ def _fetch_all(
         # 2) escalera + mineros base vía get-by-miner-name.
         # Saltea los nombres que YA tienen su nivel base (1): así reintentar
         # refresh() solo pega a los que faltan y converge en 2–3 pasadas.
-        have_base = {m["name"] for m in miners.values() if m["level"] == 1}
+        # `full` re-escala todos los nombres (reconstrucción desde cero);
+        # `max_names` corta el paso lento si falta demasiado (ver autosync).
+        have_base = set() if full else {m["name"] for m in miners.values() if m["level"] == 1}
         todo = sorted({m["name"] for m in miners.values()} - have_base)
+        if max_names is not None and len(todo) > max_names:
+            last_refresh_skipped = len(todo)
+            todo = []
         if on_total:
             on_total(len(todo))
 
@@ -301,9 +326,12 @@ class Catalog:
     def refreshing(self) -> bool:
         return self._refreshing
 
-    def refresh(self) -> None:
-        """Bloqueante. Descarga completa (~15-20 min por el rate-limit).
-        No-op si ya hay otro refresh en curso. `self._miners` (y por lo
+    def refresh(self, full: bool = False, max_names: int | None = None) -> None:
+        """Bloqueante. Trae solo los nombres que falten (con el seed completo
+        son segundos); `full=True` re-escala todos los nombres, que es la
+        descarga larga (~15-20 min por el rate-limit) y la única que conviene
+        anunciar como tal. `max_names` deja el paso lento sin hacer si faltan
+        más nombres que ese tope. No-op si ya hay otro refresh en curso. `self._miners` (y por lo
         tanto `missing_base`/`all()`) se va actualizando EN VIVO a medida
         que cada nombre termina, no recién al final -- antes quedaba
         pegado al valor de antes de empezar durante los 15-20 min enteros."""
@@ -324,7 +352,13 @@ class Catalog:
             self._progress_done = done
 
         try:
-            self._miners = _fetch_all(previous=self._miners, on_total=on_total, on_progress=on_progress)
+            self._miners = _fetch_all(
+                previous=self._miners,
+                on_total=on_total,
+                on_progress=on_progress,
+                full=full,
+                max_names=max_names,
+            )
             self._fetched_at = time.time()
             _write_cache(self._miners)
             try:
@@ -337,11 +371,31 @@ class Catalog:
             self._progress_total = 0
             self._refresh_lock.release()
 
-    def refresh_async(self) -> bool:
+    def refresh_async(self, full: bool = False) -> bool:
         """Lanza refresh() en un hilo. Devuelve False si ya había uno corriendo."""
         if self._refreshing:
             return False
-        threading.Thread(target=self.refresh, name="catalog-refresh", daemon=True).start()
+        threading.Thread(
+            target=self.refresh, kwargs={"full": full}, name="catalog-refresh", daemon=True
+        ).start()
+        return True
+
+    def autosync_async(self) -> bool:
+        """Puesta al día barata al arrancar. En un hosting con disco efímero
+        (Render duerme el servicio por inactividad y vuelve a levantar un
+        contenedor nuevo) se pierde `.cache/catalog.json` y el catálogo
+        retrocede al seed de la imagen; esto lo vuelve a poner al día solo,
+        trayendo únicamente los nombres que falten. Si faltan más de
+        `_AUTOSYNC_MAX_NAMES` no hace el paso lento: esa descarga la decide
+        el usuario. Devuelve False si no había nada que sincronizar."""
+        if self._refreshing or not self._miners:
+            return False
+        threading.Thread(
+            target=self.refresh,
+            kwargs={"max_names": _AUTOSYNC_MAX_NAMES},
+            name="catalog-autosync",
+            daemon=True,
+        ).start()
         return True
 
     @property
@@ -368,11 +422,17 @@ class Catalog:
         remote_names = {r["resultItemName"] for r in results}
         local_names = {m["name"] for m in self._miners}
         new_names = sorted(remote_names - local_names)
+        # nombres que un refresh incremental tendría que escalar: los nuevos
+        # más los que ya teníamos pero quedaron sin su nivel base.
+        have_base = {m["name"] for m in self._miners if m["level"] == 1}
+        pending = len((remote_names | local_names) - have_base)
         return {
             "remote_names": len(remote_names),
             "local_names": len(local_names),
             "new_count": len(new_names),
             "new_names": new_names[:50],
+            "pending": pending,
+            "eta_seconds": _eta_seconds(pending),
         }
 
     def all(self) -> list[dict]:

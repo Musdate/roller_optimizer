@@ -6,6 +6,7 @@ Capa delgada sobre `optimizer.py` (lógica pura) y `catalog.py` (datos).
 from __future__ import annotations
 
 import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -27,7 +28,17 @@ from .models import (
 from .optimizer import MinerModel, OptimizeRequest, optimize
 from .paste import parse_inventory
 
-app = FastAPI(title="Optimizador Sala RollerCoin", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # El disco del contenedor puede ser efímero (Render lo recicla al dormir
+    # el servicio): el catálogo arranca del seed de la imagen y le faltan los
+    # mineros que RollerCoin agregó después. `autosync_async` los trae solo,
+    # en segundo plano y en segundos. Ver DEPLOY.md.
+    catalog.autosync_async()
+    yield
+
+
+app = FastAPI(title="Optimizador Sala RollerCoin", version="0.1.0", lifespan=lifespan)
 
 # El solver de OR-Tools puede tardar hasta `time_limit_s` (60s desde el
 # frontend) y suele usar varios núcleos por sí solo -- en un VPS chico, unas
@@ -135,14 +146,18 @@ def get_catalog_by_ids(ids: str = Query(default="")) -> list[CatalogMinerOut]:
 
 
 @app.post("/api/catalog/refresh")
-def refresh_catalog() -> dict:
-    started = catalog.refresh_async()
+def refresh_catalog(full: bool = Query(default=False)) -> dict:
+    """Trae los mineros que falten. `full=true` re-baja todo el catálogo
+    (~15-20 min); sin eso solo escala los nombres sin nivel base, que con el
+    seed completo son unos pocos y tardan segundos."""
+    started = catalog.refresh_async(full=full)
     return {
         "ok": True,
         "started": started,
         "already_running": not started,
         "refreshing": catalog.refreshing,
         "missing_base": catalog.missing_base,
+        "full": full,
     }
 
 

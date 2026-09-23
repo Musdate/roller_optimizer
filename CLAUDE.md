@@ -73,10 +73,15 @@ CORS real).
   1 es el nivel 2 del juego, y el nivel base sale de los `requiredItems` (ver
   RULES.md §6.0). El repo trae un **snapshot completo** en
   `app/data/catalog_seed.json` (se versiona, ~1.8 MB) que se usa al arrancar. La
-  API limita agresivamente; una recarga completa tarda ~15-20 min. **No se
-  recarga sola por antigüedad**: `refresh()` es manual (`POST /api/catalog/refresh`),
-  corre en un hilo, y hace *merge* (un refresh parcial nunca borra datos). Caché
-  en `backend/.cache/catalog.json` (7 días, efímera).
+  API limita agresivamente; una recarga completa (`?full=true`) tarda ~15-20 min.
+  `refresh()` normal es **incremental**: solo escala los nombres sin nivel base,
+  o sea lo que RollerCoin agregó desde el seed (segundos). **No se recarga sola
+  por antigüedad**, pero sí hace una **puesta al día al arrancar**
+  (`autosync_async` desde el `lifespan` de `main.py`, tope 50 nombres): el disco
+  puede ser efímero (Render recicla el contenedor al dormirse) y sin eso el
+  catálogo retrocede al seed en cada arranque. Siempre hace *merge* (un refresh
+  parcial nunca borra datos). Caché en `backend/.cache/catalog.json` (7 días,
+  efímera).
 - **`app/main.py`** — endpoints FastAPI, sin lógica propia. `/api/optimize` tiene
   un **lock global no-bloqueante**: solo 1 optimización a la vez, el resto recibe
   429 al toque (el solver satura CPU en un VPS chico). También sirve

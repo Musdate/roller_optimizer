@@ -45,6 +45,35 @@ redeploy (no pasa nada, el seed está completo). Si querés que persista, agreg�
 
 ---
 
+## Opción A2 — Render (u otro PaaS con disco efímero)
+
+Mismo `Dockerfile`, sin cambios: **Web Service → Docker**, puerto `8000`.
+
+Lo que hay que saber: el disco del contenedor **no persiste**. En el plan free
+Render duerme el servicio tras ~15 min sin tráfico y al despertarlo levanta un
+contenedor nuevo, así que `/app/.cache/catalog.json` desaparece y el catálogo
+vuelve al seed que viene en la imagen.
+
+No hace falta disco ni storage externo: al arrancar, el backend hace una
+**puesta al día automática** (`catalog.autosync_async()`, ver RULES.md §6.1) que
+trae solo los nombres que falten — con el seed completo son los pocos mineros
+que RollerCoin agregó desde el snapshot, cuesta segundos y ocurre en segundo
+plano. Si faltan más de 50 nombres no lo hace solo: eso ya es la pasada larga y
+la dispara el usuario con "recarga completa" en la UI.
+
+Dos consecuencias prácticas:
+
+- Una **recarga completa** (~15-20 min) no sobrevive al spin-down: si nadie usa
+  la app mientras corre, Render duerme el servicio y la descarga se pierde a
+  medias (lo ya bajado se conserva por el *merge*, pero hay que repetirla). Si
+  necesitas una, deja la pestaña abierta — el polling de `/api/health` alcanza
+  como tráfico — o hazla local y versiona el seed (abajo).
+- Para que el seed de la imagen no envejezca, cada tanto corre
+  `python scripts/build_seed.py` (cwd = `backend/`) y commitea
+  `app/data/catalog_seed.json`.
+
+---
+
 ## Opción B — `docker compose` a mano en el VPS (sin Dokploy)
 
 ```bash
