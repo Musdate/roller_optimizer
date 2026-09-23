@@ -33,6 +33,9 @@ export function totalsFor(
   return { rawPower, bonusBp, finalPower: finalPower(rawPower, bonusBp), miners, cells };
 }
 
+/** Totales del inventario fuera de la sala (copias disponibles, sin las puestas). */
 export function inventoryTotals(list: InventoryItem[]): Totals {
-  return totalsFor(list.map((item) => ({ item, count: item.quantity })));
+  return totalsFor(
+    list.map((item) => ({ item, count: item.quantity - (item.inRoom ?? 0) })),
+  );
 }
