@@ -4,7 +4,7 @@ import { useStore } from "../store";
 import { useUndo } from "../undoState";
 import { totalsFor } from "../calc";
 import MinerSprite from "./MinerSprite";
-import type { OptimizeResponse } from "../types";
+import type { Merge, OptimizeResponse } from "../types";
 
 const STATUS_LABEL: Record<string, string> = {
   optimal: "óptimo demostrado",
@@ -13,10 +13,58 @@ const STATUS_LABEL: Record<string, string> = {
   unknown: "desconocido",
 };
 
-export default function ResultView({ result: r }: { result: OptimizeResponse }) {
+export default function ResultView({
+  result: r,
+  onApplied,
+}: {
+  result: OptimizeResponse;
+  onApplied: () => void;
+}) {
   const inventory = useStore((s) => s.inventory);
   const applyRoom = useStore((s) => s.applyRoom);
   const offerUndo = useUndo((s) => s.offer);
+  const excludedMerges = useStore((s) => s.excludedMerges);
+  const excludeMerge = useStore((s) => s.excludeMerge);
+  const includeMerge = useStore((s) => s.includeMerge);
+  const isExcluded = (id: string) => excludedMerges.some((e) => e.from_id === id);
+  const pendingDiscards = r.merges.some((mg) => isExcluded(mg.from_id));
+
+  // Merges agrupados por minero: una fila por cadena, con el nivel final y
+  // la ganancia de toda la cadena (los niveles intermedios no quedan en la
+  // sala). Descartar descarta el paso final. Orden: mayor ganancia primero.
+  const mergeGroups = Object.values(
+    r.merges.reduce<Record<string, Merge[]>>((acc, mg) => {
+      (acc[mg.from_name] ??= []).push(mg);
+      return acc;
+    }, {}),
+  )
+    .map((steps) => {
+      steps.sort((x, y) => y.from_level - x.from_level);
+      return {
+        name: steps[0].from_name,
+        steps,
+        merges: steps.reduce((n, mg) => n + mg.count, 0),
+        total: steps.reduce((t, mg) => t + mergeGain(mg), 0n),
+      };
+    })
+    .sort((x, y) => (y.total > x.total ? 1 : y.total < x.total ? -1 : 0));
+
+  const discardButton = (mg: Merge) =>
+    isExcluded(mg.from_id) ? (
+      <button className="tiny" onClick={() => includeMerge(mg.from_id)}>
+        deshacer
+      </button>
+    ) : (
+      <button
+        className="tiny"
+        title="no proponer este merge en las próximas optimizaciones"
+        onClick={() =>
+          excludeMerge({ from_id: mg.from_id, from_name: mg.from_name, from_level: mg.from_level })
+        }
+      >
+        descartar
+      </button>
+    );
   const [selId, setSelId] = useState<string | null>(null);
 
   const pct = Math.min(100, r.headroom_pct);
@@ -28,6 +76,12 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
   }
   const pickCounts: Record<string, number> = {};
   for (const p of r.picks) pickCounts[p.id] = p.count;
+  // copias que ganan (+) o pierden (−) los modelos por los merges propuestos
+  const mergeDelta: Record<string, number> = {};
+  for (const mg of r.merges) {
+    mergeDelta[mg.from_id] = (mergeDelta[mg.from_id] ?? 0) - 2 * mg.count;
+    mergeDelta[mg.to.id] = (mergeDelta[mg.to.id] ?? 0) + mg.count;
+  }
 
   // Mineros que estaban en la sala y salen (todas o algunas de sus copias).
   const removed = Object.values(inventory)
@@ -67,7 +121,8 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
 
   function useAsRoom() {
     offerUndo("Sala optimizada aplicada.", inventory);
-    applyRoom(pickCounts);
+    applyRoom(pickCounts, r.merges);
+    onApplied();
   }
 
   return (
@@ -193,12 +248,54 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
         )
       ) : (
         <>
+          {r.merges.length > 0 && (
+            <div className="merge-box">
+              <h3 style={{ margin: 0 }}>Merges a hacer</h3>
+              <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>
+                Paso previo: hazlos antes de armar la sala.
+              </div>
+              <table>
+                <tbody>
+                  {mergeGroups.map((g) => {
+                    const top = g.steps[0];
+                    return (
+                        <tr key={g.name} style={isExcluded(top.from_id) ? { opacity: 0.45 } : undefined}>
+                          <td>
+                            <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+                              <MinerSprite url={top.to.image} width={top.to.width} size={28} level={top.to.level} />
+                              <span className="name-row">
+                                {g.name}
+                                <span className="tag merge">{g.merges} merge</span>
+                              </span>
+                            </div>
+                          </td>
+                          <td
+                            className="num"
+                            title="poder de mineros: las copias finales menos las que se consumen en los merges"
+                          >
+                            <Gain value={g.total} />
+                          </td>
+                          <td className="num">{discardButton(top)}</td>
+                        </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {pendingDiscards && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Optimiza de nuevo para aplicar los descartes.
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="row between" style={{ marginBottom: 6 }}>
             <h3 style={{ margin: 0 }}>Sala optimizada</h3>
             <button className="tiny" onClick={useAsRoom}>
               usar como sala
             </button>
           </div>
+
 
           <table>
             <thead>
@@ -214,8 +311,9 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
               {r.picks.map((p) => {
                 const inRoomBefore = roomNow[p.id] ?? 0;
                 const addedToRoom = p.count - inRoomBefore;
-                const owned = inventory[p.id]?.quantity ?? 0;
+                const owned = (inventory[p.id]?.quantity ?? 0) + (mergeDelta[p.id] ?? 0);
                 const toBuy = Math.max(0, p.count - owned);
+                const fromMerge = (mergeDelta[p.id] ?? 0) > 0;
                 return (
                   <tr
                     key={p.id}
@@ -226,7 +324,7 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                     <td>
                       <div className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
                         <MinerSprite
-                          url={inventory[p.id]?.image ?? ""}
+                          url={inventory[p.id]?.image || p.image || ""}
                           width={p.width}
                           size={28}
                           level={p.level}
@@ -248,6 +346,7 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
                               −{-addedToRoom} sale{addedToRoom < -1 ? "n" : ""}
                             </span>
                           )}
+                          {fromMerge && <span className="tag merge">merge</span>}
                           {toBuy > 0 && <span className="tag buy">comprar {toBuy}</span>}
                         </span>
                       </div>
@@ -290,5 +389,19 @@ export default function ResultView({ result: r }: { result: OptimizeResponse }) 
         </>
       )}
     </div>
+  );
+}
+
+/** Poder de mineros que suma un merge: la copia nueva menos las 2 que consume. */
+function mergeGain(mg: Merge): bigint {
+  return BigInt(mg.count) * (BigInt(mg.to.power) - 2n * BigInt(mg.from_power));
+}
+
+function Gain({ value }: { value: bigint }) {
+  return (
+    <span className={`opt-delta ${value >= 0n ? "up" : "down"}`}>
+      {value >= 0n ? "+" : "−"}
+      {formatPower(value >= 0n ? value : -value)}
+    </span>
   );
 }

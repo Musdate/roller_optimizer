@@ -6,6 +6,7 @@ Objetivo lexicográfico sobre combinaciones con  F(S) <= objetivo:
     1. maximizar F(S)      (acercarse al techo)
     2. minimizar B(S)      (menor bonus)
     3. maximizar P(S)      (mayor poder bruto)
+    4. minimizar merges    (solo con allow_merges, ver RULES.md §5.9)
 
 donde
     P(S) = suma de poder bruto de cada minero colocado
@@ -34,6 +35,7 @@ class MinerModel:
     width: int = 1      # celdas (1 o 2)
     name: str = ""
     level: int = 0
+    next_id: str | None = None  # modelo que sale de mergear 2 copias de este
 
 
 @dataclass
@@ -43,6 +45,8 @@ class OptimizeRequest:
     slot_mode: str = "miners"       # "miners" | "cells"
     time_limit_s: float = 10.0
     workers: int = 8
+    allow_merges: bool = False
+    excluded_merges: frozenset[str] = frozenset()  # ids de origen que no se mergean
 
 
 @dataclass
@@ -57,9 +61,17 @@ class Pick:
 
 
 @dataclass
+class Merge:
+    from_id: str
+    to_id: str
+    count: int  # consume 2·count copias de from_id, produce count de to_id
+
+
+@dataclass
 class OptimizeResult:
     status: str
     picks: list[Pick] = field(default_factory=list)
+    merges: list[Merge] = field(default_factory=list)
     raw_power: int = 0
     bonus_bp: int = 0
     final_power: int = 0
@@ -85,13 +97,42 @@ def _pick_scale(target: int, bonus_max_total: int) -> int:
 
 def optimize(models: list[MinerModel], req: OptimizeRequest) -> OptimizeResult:
     # --- saneo de entrada -------------------------------------------------
-    usable = [
-        m
+    valid = {
+        m.id: m
         for m in models
-        if m.quantity > 0
+        if m.quantity >= 0
         and m.power >= 0
         and m.width >= 1
         and not (m.power == 0 and m.bonus_bp == 0)  # inútil: solo gasta slot
+    }
+
+    # prev[x] = modelo que, mergeando 2 copias, produce x (RULES.md §5.9)
+    prev: dict[str, str] = {}
+    if req.allow_merges:
+        for m in valid.values():
+            if (
+                m.next_id
+                and m.next_id in valid
+                and m.next_id != m.id
+                and m.id not in req.excluded_merges
+            ):
+                prev[m.next_id] = m.id
+
+    # copias alcanzables: propias + las que llegan mergeando el nivel anterior
+    disp: dict[str, int] = {}
+
+    def _disp(mid: str, depth: int = 0) -> int:
+        if mid not in disp:
+            src = prev.get(mid)
+            inflow = _disp(src, depth + 1) // 2 if src and depth < 16 else 0
+            disp[mid] = valid[mid].quantity + inflow
+        return disp[mid]
+
+    usable = [m for m in valid.values() if _disp(m.id) > 0]
+    usable_ids = {m.id for m in usable}
+    # modelos que se pueden mergear a su nivel siguiente
+    mergeable = [
+        m for m in usable if m.next_id in usable_ids and prev.get(m.next_id) == m.id
     ]
     target = int(req.target_final_power)
     max_slots = int(req.max_slots)
@@ -111,11 +152,12 @@ def optimize(models: list[MinerModel], req: OptimizeRequest) -> OptimizeResult:
 
     # --- atajo: si TODAS las copias entran en la sala y ni así se pasa del ---
     # objetivo, la solución lex-óptima es usar todo el inventario (no hay
-    # decisión de qué descartar; más poder y más bonus => más F).
+    # decisión de qué descartar; más poder y más bonus => más F). Con merges
+    # posibles no vale: mergear también sube poder y bonus.
     total_cells = sum(
         m.quantity * (m.width if cells_mode else 1) for m in usable
     )
-    if total_cells <= max_slots:
+    if total_cells <= max_slots and not mergeable:
         all_counts = {m.id: m.quantity for m in usable}
         all_raw = sum(by_id[i].power * c for i, c in all_counts.items())
         all_bonus = sum(by_id[i].bonus_bp for i in all_counts)
@@ -139,7 +181,7 @@ def optimize(models: list[MinerModel], req: OptimizeRequest) -> OptimizeResult:
 
     def slot_cap(m: MinerModel) -> int:
         w = m.width if cells_mode else 1
-        return min(m.quantity, max_slots // max(w, 1))
+        return min(disp[m.id], max_slots // max(w, 1))
 
     avail_power_s = sum(power_s[m.id] * slot_cap(m) for m in usable)
     M = max(min(target_s, avail_power_s), 1)
@@ -154,6 +196,16 @@ def optimize(models: list[MinerModel], req: OptimizeRequest) -> OptimizeResult:
         model.add(u >= 1).only_enforce_if(b)
         model.add(u == 0).only_enforce_if(b.negated())
         use[m.id], y[m.id] = u, b
+
+    # k[m] = merges de m a su nivel siguiente (2 copias -> 1)
+    k: dict[str, cp_model.IntVar] = {
+        m.id: model.new_int_var(0, disp[m.id] // 2, f"k_{m.id}") for m in mergeable
+    }
+    for m in usable:
+        src = prev.get(m.id)
+        inflow = k[src] if src in k else 0
+        if m.id in k or src in k:
+            model.add(use[m.id] + 2 * k.get(m.id, 0) <= m.quantity + inflow)
 
     if cells_mode:
         model.add(sum(use[m.id] * m.width for m in usable) <= max_slots)
@@ -190,23 +242,22 @@ def optimize(models: list[MinerModel], req: OptimizeRequest) -> OptimizeResult:
 
     solver = cp_model.CpSolver()
     solver.parameters.num_workers = int(req.workers)
-    # frenar la demostración de optimalidad cuando ya estamos a < 1e-6 del óptimo
-    # (sobre poderes de 1e12 GH/s eso es < 1e6 GH/s: despreciable).
-    solver.parameters.relative_gap_limit = 1e-6
     per_pass = max(1.0, float(req.time_limit_s) / 2)
 
     total_time = 0.0
 
-    def _run(set_obj) -> int:
+    def _run(set_obj, gap: float = 0.0, limit: float = per_pass) -> int:
         nonlocal total_time
         set_obj()
-        solver.parameters.max_time_in_seconds = per_pass
+        solver.parameters.relative_gap_limit = gap
+        solver.parameters.max_time_in_seconds = limit
         st = solver.solve(model)
         total_time += solver.wall_time
         return st
 
-    # Pasada 1: maximizar F (acercarse al objetivo)
-    st1 = _run(lambda: model.maximize(F))
+    # Pasada 1: maximizar F (acercarse al objetivo). El gap 1e-6 sobre F queda
+    # bajo lo que se muestra (con 50 EH/s son 0.00005 EH/s).
+    st1 = _run(lambda: model.maximize(F), gap=1e-6)
     if st1 not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return _finalize(by_id, greedy, target, S, total_time, cells_mode, "feasible")
     f_star = int(solver.value(F))
@@ -214,20 +265,48 @@ def optimize(models: list[MinerModel], req: OptimizeRequest) -> OptimizeResult:
 
     # Pasada 2 (combinada): menor bonus y, como desempate, mayor poder bruto.
     #   minimizar  B * W - P_s   con W tal que 1 bp de bonus pesa más que todo P_s
+    # Sin gap: el objetivo lo domina B*W y un gap relativo dejaría P_s lejos
+    # del óptimo (RULES.md §7.3).
     w = avail_power_s + 1
     st2 = _run(lambda: model.minimize(B * w - P_s))
 
     proven = st1 == cp_model.OPTIMAL and st2 == cp_model.OPTIMAL
-    status_label = "optimal" if proven else "feasible"
 
-    counts = {mid: int(solver.value(v)) for mid, v in use.items() if solver.value(v) > 0}
+    def _values() -> tuple[dict[str, int], dict[str, int]]:
+        cs = {mid: int(solver.value(v)) for mid, v in use.items() if solver.value(v) > 0}
+        ms = {mid: int(solver.value(v)) for mid, v in k.items() if solver.value(v) > 0}
+        return cs, ms
+
+    counts, merges = _values()
+
+    # Pasada 3: a igual B y P_s, menos merges. Aparte y no como peso en la 2
+    # porque multiplicar B*W otra vez puede desbordar int64.
+    if merges:
+        b_star, p_star = int(solver.value(B)), int(solver.value(P_s))
+        model.add(B == b_star)
+        model.add(P_s >= p_star)
+        model.clear_hints()
+        for mid, v in use.items():
+            model.add_hint(v, counts.get(mid, 0))
+            model.add_hint(y[mid], 1 if counts.get(mid, 0) > 0 else 0)
+        for mid, v in k.items():
+            model.add_hint(v, merges.get(mid, 0))
+        left = max(1.0, float(req.time_limit_s) - total_time)
+        st3 = _run(lambda: model.minimize(sum(k.values())), limit=left)
+        if st3 in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            counts, merges = _values()
+        proven = proven and st3 == cp_model.OPTIMAL
+
+    status_label = "optimal" if proven else "feasible"
 
     # nunca peor que la heurística voraz (red de seguridad)
     if _lex_key(by_id, greedy, target) > _lex_key(by_id, counts, target):
-        counts = greedy
+        counts, merges = greedy, {}
         status_label = "feasible"
 
-    return _finalize(by_id, counts, target, S, total_time, cells_mode, status_label)
+    return _finalize(
+        by_id, counts, target, S, total_time, cells_mode, status_label, merges
+    )
 
 
 def _lex_key(
@@ -274,6 +353,7 @@ def _finalize(
     solve_time: float,
     cells_mode: bool,
     status: str = "optimal",
+    merges: dict[str, int] | None = None,
 ) -> OptimizeResult:
     # recálculo EXACTO con enteros de Python
     counts = _trim_overshoot(by_id, counts, target)
@@ -298,10 +378,17 @@ def _finalize(
             counts.items(), key=lambda kv: (-by_id[kv[0]].power, by_id[kv[0]].name)
         )
     ]
+    merge_list = [
+        Merge(from_id=mid, to_id=by_id[mid].next_id or "", count=c)
+        for mid, c in sorted(
+            (merges or {}).items(), key=lambda kv: (by_id[kv[0]].level, by_id[kv[0]].name)
+        )
+    ]
     headroom = target - fin
     return OptimizeResult(
         status=status,
         picks=picks,
+        merges=merge_list,
         raw_power=raw,
         bonus_bp=bonus,
         final_power=fin,

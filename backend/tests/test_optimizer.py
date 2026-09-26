@@ -179,3 +179,166 @@ def test_fuzz_vs_fuerza_bruta(seed):
         f"seed={seed} models={models} slots={max_slots}/{slot_mode} target={target}\n"
         f"got  {result_key(res)}\nwant {ref_key}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Merges (RULES.md §5.9)
+# --------------------------------------------------------------------------- #
+
+
+def _chain(qtys, powers, bonuses, width=1):
+    """Escalera c0 -> c1 -> ... del mismo minero."""
+    n = len(qtys)
+    return [
+        MinerModel(
+            id=f"c{i}",
+            power=powers[i],
+            bonus_bp=bonuses[i],
+            quantity=qtys[i],
+            width=width,
+            name="C",
+            level=i + 1,
+            next_id=f"c{i + 1}" if i + 1 < n else None,
+        )
+        for i in range(n)
+    ]
+
+
+def _merged_counts(models, res):
+    """Copias disponibles tras aplicar los merges del resultado."""
+    avail = {m.id: m.quantity for m in models}
+    for mg in res.merges:
+        avail[mg.from_id] -= 2 * mg.count
+        avail[mg.to_id] += mg.count
+    return avail
+
+
+def test_merge_mejora_la_sala():
+    # 1 celda: 2x nivel 1 (750, 1%) -> 1x nivel 2 (2000, 2.5%)
+    models = _chain([2, 0], [750, 2000], [100, 250])
+    req = OptimizeRequest(target_final_power=10**6, max_slots=1, allow_merges=True)
+    res = optimize(models, req)
+    assert [(m.from_id, m.to_id, m.count) for m in res.merges] == [("c0", "c1", 1)]
+    assert [(p.id, p.count) for p in res.picks] == [("c1", 1)]
+    assert res.final_power == final_power(2000, 250)
+
+
+def test_sin_allow_merges_ignora_next_id():
+    models = _chain([2, 0], [750, 2000], [100, 250])
+    req = OptimizeRequest(target_final_power=10**6, max_slots=1)
+    res = optimize(models, req)
+    assert res.merges == []
+    assert [(p.id, p.count) for p in res.picks] == [("c0", 1)]
+
+
+def test_merge_en_cadena():
+    # 4x nivel 1 -> 2x nivel 2 -> 1x nivel 3
+    models = _chain([4, 0, 0], [750, 2000, 5500], [100, 250, 500])
+    req = OptimizeRequest(target_final_power=10**6, max_slots=1, allow_merges=True)
+    res = optimize(models, req)
+    assert [(m.from_id, m.count) for m in res.merges] == [("c0", 2), ("c1", 1)]
+    assert [(p.id, p.count) for p in res.picks] == [("c2", 1)]
+
+
+def test_merge_descartado_no_se_usa():
+    # 4x nivel 1 -> 2x nivel 2 -> 1x nivel 3, pero 2 -> 3 está descartado
+    models = _chain([4, 0, 0], [750, 2000, 5500], [100, 250, 500])
+    req = OptimizeRequest(
+        target_final_power=10**6,
+        max_slots=1,
+        allow_merges=True,
+        excluded_merges=frozenset({"c1"}),
+    )
+    res = optimize(models, req)
+    assert [(m.from_id, m.count) for m in res.merges] == [("c0", 1)]
+    assert [(p.id, p.count) for p in res.picks] == [("c1", 1)]
+
+
+def test_no_mergea_copias_que_no_se_usan():
+    # sobran copias de nivel 1 fuera de la sala: mergearlas no cambia nada
+    models = _chain([6, 1], [100, 150], [0, 0])
+    req = OptimizeRequest(target_final_power=10**6, max_slots=2, allow_merges=True)
+    res = optimize(models, req)
+    # óptimo: 2x nivel 2 (300) -> hace falta exactamente 1 merge
+    assert res.raw_power == 300
+    assert sum(m.count for m in res.merges) == 1
+
+
+def brute_force_merges(models, req):
+    """Como brute_force pero enumerando merges en una escalera c0 -> c1 -> c2."""
+    chain = [m for m in models if m.id.startswith("c")]
+    best = None
+    k_ranges = [range(chain[0].quantity // 2 + 1)]
+    for k0 in k_ranges[0]:
+        for k1 in range((chain[1].quantity + k0) // 2 + 1):
+            avail = {m.id: m.quantity for m in models}
+            avail["c0"] -= 2 * k0
+            avail["c1"] += k0 - 2 * k1
+            avail["c2"] += k1
+            if min(avail.values()) < 0:
+                continue
+            ranges = [range(min(avail[m.id], req.max_slots) + 1) for m in models]
+            for combo in itertools.product(*ranges):
+                if req.slot_mode == "cells":
+                    used = sum(c * m.width for c, m in zip(combo, models))
+                else:
+                    used = sum(combo)
+                if used > req.max_slots:
+                    continue
+                raw = sum(c * m.power for c, m in zip(combo, models))
+                bonus = sum(m.bonus_bp for c, m in zip(combo, models) if c > 0)
+                fin = final_power(raw, bonus)
+                if fin > req.target_final_power:
+                    continue
+                key = (fin, -bonus, raw, -(k0 + k1))
+                if best is None or key > best:
+                    best = key
+    return best
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_fuzz_merges_vs_fuerza_bruta(seed):
+    rng = random.Random(1000 + seed)
+    p0 = rng.choice([100, 300, 750])
+    chain = _chain(
+        [rng.randint(0, 5), rng.randint(0, 2), rng.randint(0, 1)],
+        [p0, p0 * rng.choice([2, 3]), p0 * rng.choice([5, 7])],
+        [rng.choice([0, 100]), rng.choice([0, 250]), rng.choice([0, 500])],
+        width=rng.choice([1, 2]),
+    )
+    others = [
+        MinerModel(
+            id=f"m{i}",
+            power=rng.choice([50, 200, 1000]),
+            bonus_bp=rng.choice([0, 100, 1000]),
+            quantity=rng.randint(1, 3),
+            width=rng.choice([1, 2]),
+            name=f"M{i}",
+        )
+        for i in range(rng.randint(0, 2))
+    ]
+    models = chain + others
+    max_slots = rng.randint(1, 6)
+    slot_mode = rng.choice(["miners", "cells"])
+    max_raw = sum(m.power * 4 for m in models)
+    target = rng.randint(0, final_power(max_raw, 1000) + 50)
+
+    req = OptimizeRequest(
+        target_final_power=target,
+        max_slots=max_slots,
+        slot_mode=slot_mode,
+        allow_merges=True,
+    )
+    res = optimize(models, req)
+    ref = brute_force_merges(models, req)
+
+    assert res.final_power <= target
+    avail = _merged_counts(models, res)
+    assert min(avail.values()) >= 0
+    for p in res.picks:
+        assert p.count <= avail[p.id]
+    got = result_key(res) + (-sum(m.count for m in res.merges),)
+    assert got == ref, (
+        f"seed={seed} models={models} slots={max_slots}/{slot_mode} target={target}\n"
+        f"got  {got}\nwant {ref}"
+    )

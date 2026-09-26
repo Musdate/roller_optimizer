@@ -6,6 +6,7 @@ Capa delgada sobre `optimizer.py` (lógica pura) y `catalog.py` (datos).
 from __future__ import annotations
 
 import threading
+from dataclasses import replace
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,6 +17,8 @@ from fastapi.staticfiles import StaticFiles
 from .catalog import RoomSyncError, catalog, fetch_user_room
 from .models import (
     CatalogMinerOut,
+    MergeOut,
+    MergeTargetOut,
     OptimizeRequestBody,
     OptimizeResponse,
     ParsedItemOut,
@@ -239,13 +242,24 @@ def run_optimize(body: OptimizeRequestBody) -> OptimizeResponse:
             )
             for it in body.inventory
         ]
+        rows = catalog.all()
+        row_by_id = {r["id"]: r for r in rows}
+        if body.allow_merges:
+            models = _with_merge_targets(models, rows, row_by_id)
+        by_id = {m.id: m for m in models}
         req = OptimizeRequest(
             target_final_power=body.target_final_power,
             max_slots=body.max_slots,
             slot_mode=body.slot_mode,
             time_limit_s=body.time_limit_s,
+            allow_merges=body.allow_merges,
+            excluded_merges=frozenset(body.excluded_merges),
         )
         res = optimize(models, req)
+
+        def image(mid: str) -> str:
+            return row_by_id.get(mid, {}).get("image", "")
+
         return OptimizeResponse(
             status=res.status,
             picks=[
@@ -257,8 +271,28 @@ def run_optimize(body: OptimizeRequestBody) -> OptimizeResponse:
                     power=str(p.power),
                     bonus_bp=p.bonus_bp,
                     width=p.width,
+                    image=image(p.id),
                 )
                 for p in res.picks
+            ],
+            merges=[
+                MergeOut(
+                    from_id=mg.from_id,
+                    from_name=by_id[mg.from_id].name,
+                    from_level=by_id[mg.from_id].level,
+                    from_power=str(by_id[mg.from_id].power),
+                    count=mg.count,
+                    to=MergeTargetOut(
+                        id=mg.to_id,
+                        name=by_id[mg.to_id].name,
+                        level=by_id[mg.to_id].level,
+                        power=str(by_id[mg.to_id].power),
+                        bonus_bp=by_id[mg.to_id].bonus_bp,
+                        width=by_id[mg.to_id].width,
+                        image=image(mg.to_id),
+                    ),
+                )
+                for mg in res.merges
             ],
             raw_power=str(res.raw_power),
             bonus_bp=res.bonus_bp,
@@ -274,6 +308,36 @@ def run_optimize(body: OptimizeRequestBody) -> OptimizeResponse:
         )
     finally:
         _optimize_lock.release()
+
+
+def _with_merge_targets(
+    models: list[MinerModel], rows: list[dict], row_by_id: dict[str, dict]
+) -> list[MinerModel]:
+    """Enlaza cada modelo con su nivel siguiente del catálogo (`next_id`) y
+    agrega como candidatos (quantity 0) los niveles que no están en el
+    inventario, hasta el tope de la escalera (RULES.md §5.9)."""
+    by_name_level = {(r["name"], r["level"]): r for r in rows}
+    out: dict[str, MinerModel] = {m.id: m for m in models}
+    queue = list(out)
+    while queue:
+        mid = queue.pop()
+        row = row_by_id.get(mid)
+        nxt = by_name_level.get((row["name"], row["level"] + 1)) if row else None
+        if not nxt:
+            continue
+        out[mid] = replace(out[mid], next_id=nxt["id"])
+        if nxt["id"] not in out:
+            out[nxt["id"]] = MinerModel(
+                id=nxt["id"],
+                power=nxt["power"],
+                bonus_bp=nxt["bonus_bp"],
+                quantity=0,
+                width=nxt["width"],
+                name=nxt["name"],
+                level=nxt["level"],
+            )
+            queue.append(nxt["id"])
+    return list(out.values())
 
 
 # --- frontend estático -------------------------------------------------------

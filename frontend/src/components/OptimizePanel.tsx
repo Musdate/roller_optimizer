@@ -25,6 +25,9 @@ export default function OptimizePanel() {
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [err, setErr] = useState<string | null>(null);
+  const [allowMerges, setAllowMerges] = useState(false);
+  const excludedMerges = useStore((s) => s.excludedMerges);
+  const includeMerge = useStore((s) => s.includeMerge);
 
   useEffect(() => {
     if (!running) return;
@@ -57,6 +60,8 @@ export default function OptimizePanel() {
         max_slots: maxCells,
         slot_mode: "cells",
         time_limit_s: TIME_LIMIT_S,
+        allow_merges: allowMerges,
+        excluded_merges: excludedMerges.map((e) => e.from_id),
         inventory: list,
       });
       setResult(res);
@@ -109,6 +114,37 @@ export default function OptimizePanel() {
         </label>
       </div>
 
+      <label className="row" style={{ gap: 6, fontSize: 13, cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={allowMerges}
+          onChange={(e) => setAllowMerges(e.target.checked)}
+        />
+        permitir merges
+      </label>
+      {allowMerges && excludedMerges.length > 0 && (
+        <details style={{ fontSize: 12, marginTop: 4 }}>
+          <summary className="muted" style={{ cursor: "pointer" }}>
+            Merges descartados ({excludedMerges.length})
+          </summary>
+          <div className="row" style={{ gap: 6, marginTop: 4 }}>
+          {excludedMerges.map((e) => (
+            <span key={e.from_id} className="tag merge">
+              {e.from_name} nivel {e.from_level} → {e.from_level + 1}
+              <button
+                className="tiny"
+                title="volver a permitir este merge"
+                onClick={() => includeMerge(e.from_id)}
+                style={{ marginLeft: 4, padding: "0 4px" }}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          </div>
+        </details>
+      )}
+
       {!parsed.ok && <div className="err">{parsed.msg}</div>}
 
       <div className="row" style={{ marginTop: 12 }}>
@@ -127,8 +163,7 @@ export default function OptimizePanel() {
       </div>
       {running && (
         <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          El solver busca la mejor combinación exacta; puede tardar hasta {TIME_LIMIT_S} s
-          con inventarios grandes.
+          El solver busca la mejor combinación exacta.
         </div>
       )}
       {list.length === 0 && (
@@ -138,7 +173,7 @@ export default function OptimizePanel() {
       )}
 
       {err && <div className="err" style={{ marginTop: 10 }}>{err}</div>}
-      {result && <ResultView result={result} />}
+      {result && <ResultView result={result} onApplied={() => setResult(null)} />}
     </div>
   );
 }

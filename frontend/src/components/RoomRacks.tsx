@@ -91,8 +91,9 @@ export default function RoomRacks() {
     }
   };
 
-  // El destino real (snap a inicio de estante para minero de 2 celdas, o
-  // primer hueco si la celda pedida ya no está libre) lo resuelve la store;
+  // El destino real (snap a inicio de estante para minero de 2 celdas,
+  // intercambio si se suelta un minero de la sala sobre otro, o primer hueco
+  // si la celda pedida ya no está libre) lo resuelve la store;
   // acá solo pasamos la celda exacta donde se soltó.
   //
   // El resalte de "estoy arrastrando" se limpia ACÁ (no solo en onDragEnd

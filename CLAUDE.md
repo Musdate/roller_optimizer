@@ -62,7 +62,11 @@ CORS real).
 - **`app/optimizer.py`** — lógica pura (solo depende de `ortools`). Modelo CP-SAT
   exacto con linealización manual del producto `poder × bonus`. Resuelve en **2
   pasadas**: (1) maximizar `F`, (2) fijar `F ≥ F*` y minimizar `B·W − P` para
-  obtener menor bonus y, como desempate, mayor poder bruto. Antes: atajo si todo
+  obtener menor bonus y, como desempate, mayor poder bruto (sin gap: un gap
+  relativo ahí deja el poder bruto lejos del óptimo). Con `allow_merges`, una
+  variable `k[m]` por modelo mergeable (2 copias → 1 del nivel siguiente, que
+  `main.py` saca del catálogo) y una pasada 3 que minimiza merges (RULES.md
+  §5.9, §7.3). Antes: atajo si todo
   el inventario cabe, y heurística voraz que sirve de *hint* y de *fallback*
   garantizado (el resultado nunca es peor que la voraz). El poder se **escala**
   para no desbordar `int64` con objetivos peta/exahash (poder hacia arriba,
@@ -127,4 +131,4 @@ CORS real).
 Tras optimizar, el resultado se compara con la sala actual (`inRoom`) en
 cascada — el primer criterio que difiere decide: (1) mayor poder final
 **redondeado a como se muestra** (unidad + 3 decimales, no GH/s exactos),
-(2) menos bonus, (3) mayor poder bruto, (4) menos mineros.
+(2) menos bonus, (3) mayor poder bruto, (4) menos mineros, (5) menos merges.

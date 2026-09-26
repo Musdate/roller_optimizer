@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { CatalogMiner, InventoryItem, RoomImportItem, TargetUnit } from "./types";
+import type {
+  CatalogMiner,
+  ExcludedMerge,
+  InventoryItem,
+  Merge,
+  RoomImportItem,
+  TargetUnit,
+} from "./types";
 
 /** Celdas totales: 1ª sala = 96, cada sala a partir de la 2ª aporta 144.
  *  Un minero ocupa `width` celdas (1 o 2). */
@@ -154,6 +161,8 @@ interface State {
   roomSlots: (string | null)[];
   /** userId de RollerCoin para sincronizar la sala real ("recargar sala"). */
   rollercoinUserId: string;
+  /** Merges descartados a mano: el optimizador no los propone (RULES.md §5.9). */
+  excludedMerges: ExcludedMerge[];
 
   addFromCatalog: (m: CatalogMiner, qty?: number) => void;
   addPlanned: (m: CatalogMiner, qty?: number) => void;
@@ -161,7 +170,9 @@ interface State {
   setQuantity: (id: string, qty: number) => void;
   setInRoom: (id: string, n: number) => void;
   setPlanned: (id: string, n: number) => void;
-  applyRoom: (counts: Record<string, number>) => void;
+  /** Aplica primero los `merges` al inventario (RULES.md §5.9) y después
+   *  fija `inRoom = counts[id]`. */
+  applyRoom: (counts: Record<string, number>, merges?: Merge[]) => void;
   /** Reemplaza la sala con lo que la API de RollerCoin dice que está
    *  puesto AHORA en el juego real (ver `importRealRoom`). A diferencia de
    *  `applyRoom` (que arma una sala hipotética con lo que ya tenés
@@ -201,6 +212,8 @@ interface State {
   setTargetNum: (v: string) => void;
   setTargetUnit: (v: TargetUnit) => void;
   setRooms: (v: number) => void;
+  excludeMerge: (m: ExcludedMerge) => void;
+  includeMerge: (fromId: string) => void;
 }
 
 const nextOrder = (inv: Record<string, InventoryItem>): number => {
@@ -218,6 +231,7 @@ export const useStore = create<State>()(
       rooms: 1,
       roomSlots: Array(ROOM1_CELLS).fill(null),
       rollercoinUserId: "",
+      excludedMerges: [],
 
       addFromCatalog: (m, qty = 1) =>
         set((s) => {
@@ -303,10 +317,32 @@ export const useStore = create<State>()(
           return { inventory: { ...s.inventory, [id]: { ...cur, planned: p } } };
         }),
 
-      applyRoom: (counts) =>
+      applyRoom: (counts, merges = []) =>
         set((s) => {
+          const base: Record<string, InventoryItem> = { ...s.inventory };
+          for (const mg of merges) {
+            const src = base[mg.from_id];
+            if (src) {
+              // el optimizador cuenta quantity + planned: si faltan copias
+              // propias, las del merge salen de lo planeado
+              const need = 2 * mg.count;
+              const fromQty = Math.min(src.quantity, need);
+              const fromPlanned = Math.min(src.planned ?? 0, need - fromQty);
+              base[mg.from_id] = {
+                ...src,
+                quantity: src.quantity - fromQty,
+                planned: (src.planned ?? 0) - fromPlanned,
+              };
+            }
+            const dst = base[mg.to.id];
+            base[mg.to.id] = dst
+              ? { ...dst, quantity: dst.quantity + mg.count }
+              : { ...mg.to, quantity: mg.count, order: nextOrder(base) };
+          }
+
           const inv: Record<string, InventoryItem> = {};
-          for (const [id, cur] of Object.entries(s.inventory)) {
+          for (const [id, cur] of Object.entries(base)) {
+            if (cur.quantity <= 0 && (cur.planned ?? 0) <= 0 && !(counts[id] > 0)) continue;
             const c = Math.max(0, Math.floor(counts[id] ?? 0));
             if (c <= cur.quantity) {
               inv[id] = { ...cur, inRoom: c };
@@ -451,6 +487,29 @@ export const useStore = create<State>()(
           const cur = s.inventory[id];
           if (!cur) return s;
           const w = cur.width;
+
+          // soltado sobre otro minero: se intercambian de lugar
+          const other = slots[toCellIndex];
+          if (other != null) {
+            const swapped = [...slots];
+            const otherW = s.inventory[other]?.width ?? 1;
+            if (w < 2 && otherW < 2) {
+              if (fromCellIndex === toCellIndex) return s;
+              swapped[fromCellIndex] = other;
+              swapped[toCellIndex] = id;
+            } else {
+              // uno ocupa 2 celdas: se cambian los estantes completos (un
+              // minero de 1 celda que compartía estante viaja con él)
+              const fromShelf = fromCellIndex - (fromCellIndex % 2);
+              const toShelf = toCellIndex - (toCellIndex % 2);
+              if (fromShelf === toShelf) return s;
+              for (const d of [0, 1]) {
+                swapped[fromShelf + d] = slots[toShelf + d];
+                swapped[toShelf + d] = slots[fromShelf + d];
+              }
+            }
+            return { roomSlots: swapped };
+          }
 
           const next = [...slots];
           const fromStart = w >= 2 ? fromCellIndex - (fromCellIndex % 2) : fromCellIndex;
@@ -629,6 +688,14 @@ export const useStore = create<State>()(
       setTargetNum: (v) => set({ targetNum: v }),
       setTargetUnit: (v) => set({ targetUnit: v }),
       setRooms: (v) => set({ rooms: Math.min(MAX_ROOMS, Math.max(1, Math.floor(v))) }),
+      excludeMerge: (m) =>
+        set((s) =>
+          s.excludedMerges.some((e) => e.from_id === m.from_id)
+            ? s
+            : { excludedMerges: [...s.excludedMerges, m] },
+        ),
+      includeMerge: (fromId) =>
+        set((s) => ({ excludedMerges: s.excludedMerges.filter((e) => e.from_id !== fromId) })),
     }),
     { name: "roller-optimizer" },
   ),

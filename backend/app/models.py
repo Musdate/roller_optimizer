@@ -50,6 +50,8 @@ class OptimizeRequestBody(BaseModel):
     max_slots: int = Field(gt=0)
     slot_mode: str = "miners"
     time_limit_s: float = Field(default=10.0, gt=0, le=120)
+    allow_merges: bool = False
+    excluded_merges: list[str] = []
     inventory: list[InventoryItem]
 
     _v_target = field_validator("target_final_power", mode="before")(
@@ -72,11 +74,32 @@ class PickOut(BaseModel):
     power: str
     bonus_bp: int
     width: int
+    image: str = ""
+
+
+class MergeTargetOut(BaseModel):
+    id: str
+    name: str
+    level: int
+    power: str
+    bonus_bp: int
+    width: int
+    image: str = ""
+
+
+class MergeOut(BaseModel):
+    from_id: str
+    from_name: str
+    from_level: int
+    from_power: str
+    count: int  # consume 2·count copias del origen, produce count del destino
+    to: MergeTargetOut
 
 
 class OptimizeResponse(BaseModel):
     status: str
     picks: list[PickOut]
+    merges: list[MergeOut] = []
     raw_power: str
     bonus_bp: int
     bonus_pct: float

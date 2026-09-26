@@ -92,10 +92,13 @@ Entre todas las combinaciones válidas se elige, **en este orden**:
 1. **Mayor poder final `F(S)`** (lo más cerca posible del objetivo sin pasarse).
 2. A igualdad de `F(S)`, **menor bonus total `B(S)`**.
 3. A igualdad de `B(S)`, **mayor poder bruto `P(S)`**.
+4. A igualdad de `P(S)`, **menos merges** (solo con merges activados, §5.9).
 
 > Racional: primero acercarse al objetivo; después, gastar el menor bonus posible
 > (los mineros de bonus alto quedan libres para otras salas/juegos); y como
-> desempate, quedarse con más poder bruto.
+> desempate, quedarse con más poder bruto. Un merge no se puede deshacer, así
+> que el criterio 4 evita mergear copias que no cambian la sala (p. ej. copias
+> que al final no se colocan).
 
 ### 5.4 Límite (Salas → celdas)
 
@@ -132,6 +135,11 @@ Entre todas las combinaciones válidas se elige, **en este orden**:
     vuelve al banco): con el botón **"Quitar de la sala"** de la card de detalle,
     o soltándolo en la zona **"Suelta aquí"**. Un modelo que queda en
     `quantity 0` sin `planned` desaparece del inventario.
+- Arrastrar un minero de la sala **sobre otro minero de la sala** los
+  **intercambia** de lugar (`reorderRoomSlot`). Si los dos ocupan 1 celda se
+  cambian esas celdas; si alguno ocupa 2, se cambian los estantes completos (un
+  minero de 1 celda que compartía estante con el arrastrado viaja con él).
+  Soltarlo en una celda libre lo mueve ahí, como antes.
 - Botón **"vaciar la sala"** (icono de escoba, junto al de sincronizar en "Mi
   sala"): `clearRoom()` — elimina toda la sala de una: `inRoom = 0`, baja
   `quantity` en esas copias, `roomSlots` queda vacío. Sin confirmación.
@@ -177,7 +185,9 @@ Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
   2. bonus usado: **menor** es mejor;
   3. poder bruto de mineros (GH/s exactos): **mayor** es mejor;
   4. cantidad de mineros (`Σ count` vs `Σ inRoom`): **menor** es mejor — libera
-     celdas y son menos mineros que mantener.
+     celdas y son menos mineros que mantener;
+  5. merges: **menos** es mejor (la sala actual tiene 0), o sea, a igualdad de
+     todo lo anterior un resultado con merges no se ofrece.
 
   Una diferencia de poder final que igual se ve como el mismo número (p. ej. las
   dos salas en `49.999 EH/s`) no cuenta en el criterio 1: comparar el valor
@@ -210,6 +220,50 @@ Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
   **"reemplazar inventario"** (los modelos ausentes en el texto quedan en 0) o
   **"sumar a lo que tengo"** (`quantity += pegado`). Ambas conservan `planned` y
   el nº de salas; `inRoom` se re-acota a la nueva `quantity`.
+
+### 5.9 Merges
+
+- Receta de RollerCoin: **2 copias del modelo nivel N + piezas + costo → 1 copia
+  de nivel N+1** del mismo minero. El optimizador **ignora piezas y costo**
+  (se asume que se tienen); solo cuenta las copias.
+- Toggle **"permitir merges"** en el panel Optimizar (apagado por defecto, no se
+  persiste). Apagado, el optimizador se comporta igual que sin merges.
+- Las copias que se pueden mergear son las efectivas (`quantity + planned`,
+  §5.6): da igual si están en la sala o en el banco.
+- Se permiten cadenas: 4× nivel 1 → 2× nivel 2 → 1× nivel 3. El nivel siguiente
+  sale del catálogo por `(nombre, nivel + 1)`; puede ser un modelo que no está en
+  el inventario. Ítems sin catálogo (custom, `paste:`) no se mergean.
+- El solver decide qué merges hacer con el mismo orden de §5.3 (un merge solo
+  aparece si mejora `F`, `B` o `P`).
+- **Descartar a mano**: cada fila de "Merges a hacer" tiene un botón
+  **"descartar"** que agrega el **paso final** de esa cadena
+  (`modelo origen → nivel siguiente`) a la lista de descartados; al
+  re-optimizar puede aparecer la cadena hasta el nivel anterior. **No re-optimiza**: se pueden descartar varios y
+  después optimizar. La fila descartada queda atenuada con botón **"deshacer"**
+  y aparece el aviso "optimiza de nuevo para aplicar los descartes". Es por
+  escalón: descartar nivel 4 → 5 sigue permitiendo 3 → 4.
+- La lista se persiste en `localStorage` (`excludedMerges` en el store, por
+  navegador) y se muestra bajo el toggle en un **desplegable cerrado**
+  ("Merges descartados (N)"); cada descartado tiene una ✕ para reactivarlo. Se
+  manda como `excluded_merges` y esos modelos no se enlazan con su nivel
+  siguiente.
+- Resultado: caja **"Merges a hacer"** (antes de la tabla de la sala, con
+  fondo propio). **Una fila por minero** (la cadena completa de merges): sprite
+  del nivel final, nombre, tag **"N merge"** (total de merges de la cadena),
+  ganancia de poder bruto de la cadena y botón "descartar". Los pasos
+  intermedios no se muestran: esos niveles no quedan en la sala. Orden:
+  **ganancia de mayor a menor**.
+
+  Ganancia de la cadena: `Σ count · (poder destino − 2 · poder origen)` sobre
+  sus pasos = poder de las copias finales − poder de las copias base
+  consumidas. No es el cambio de la sala: si las copias base no estaban
+  puestas, la sala gana más. Los
+  picks que salen de un merge llevan tag **"merge"**; "comprar N" descuenta
+  las copias producidas y consumidas.
+- **"usar como sala"** aplica primero los merges al inventario (baja
+  `quantity` del origen en `2·count`, absorbiendo de `planned` si falta; sube o
+  crea el destino) y después fija los `inRoom` como siempre. Se puede deshacer
+  con el toast de deshacer.
 
 ---
 
@@ -328,7 +382,10 @@ Se resuelve con **OR-Tools CP-SAT** (exacto, entero).
 
 ### 7.1 Variables
 
-- `use[m] ∈ [0, min(qty[m], max_slots)]` — copias del modelo `m` colocadas.
+- `use[m] ∈ [0, min(disp[m], max_slots)]` — copias del modelo `m` colocadas.
+  `disp[m] = qty[m] + ⌊disp[prev(m)] / 2⌋` con merges (§5.9), `qty[m]` sin ellos.
+- `k[m] ∈ [0, ⌊disp[m] / 2⌋]` — merges de `m` a su nivel siguiente (solo con
+  merges activados y si el nivel siguiente existe en el catálogo).
 - `y[m] ∈ {0,1}` — 1 si `use[m] ≥ 1`.
   - `use[m] ≥ 1  ⇔  y[m] = 1`
 - `P_s` — poder bruto (escalado, ver §7.4).
@@ -341,6 +398,9 @@ Se resuelve con **OR-Tools CP-SAT** (exacto, entero).
 Σ_m use[m]            ≤ max_slots          (modo miners)
 Σ_m use[m] · width[m] ≤ max_slots          (modo cells)
 
+use[m] + 2·k[m] ≤ qty[m] + k[prev(m)]     (copias: propias + merges que llegan
+                                          − las que se mergean; sin merges, use ≤ qty)
+
 P_s = Σ_m use[m] · power_s[m]
 B   = Σ_m y[m] · bonus_bp[m]               (dedup: una vez por modelo)
 
@@ -352,17 +412,24 @@ F = 10000 · P_s + Σ_m bonus_bp[m] · z[m]   (= P_s · (10000 + B))
 F ≤ 10000 · objetivo_s
 ```
 
-### 7.3 Objetivo (2 pasadas)
+### 7.3 Objetivo (2 pasadas + 1 con merges)
 
 1. `maximize F`  → `F*`
 2. añadir `F ≥ F*`; `minimize (B · W − P_s)` con `W = poder_disponible_s + 1`
    (así 1 bp de bonus pesa más que todo el poder bruto → primero menor bonus,
    después mayor poder bruto, en una sola pasada).
+3. Solo si la pasada 2 usó merges: fijar `B = B*`, `P_s ≥ P*_s` y
+   `minimize Σ k[m]` (criterio 4 de §5.3). Es una pasada aparte y no un peso más
+   en la 2 porque multiplicar `B · W` otra vez puede desbordar `int64`. Usa el
+   tiempo que sobre del total (mínimo 1 s) y arranca con la solución de la
+   pasada 2 como *hint*; si no termina, queda la de la pasada 2.
 
 Antes de las pasadas:
 
 - **Atajo:** si todas las copias del inventario caben en la sala y ni así se
-  supera el objetivo → se usa todo el inventario (óptimo trivial).
+  supera el objetivo → se usa todo el inventario (óptimo trivial). No aplica si
+  hay algún merge posible: mergear sube poder y bonus, así que todavía puede
+  haber una sala mejor.
 - **Heurística voraz:** llena con los mineros de mayor poder sin pasar del
   objetivo. Se usa como *hint* del solver y como *fallback* si el solver no
   encuentra nada. El resultado final nunca es peor que esta heurística.
@@ -370,14 +437,18 @@ Antes de las pasadas:
 Después: recálculo con enteros exactos de Python (sin escala), red de seguridad
 `_trim_overshoot`, y verificación `F ≤ objetivo`.
 
-`relative_gap_limit = 1e-6`: el solver corta la demostración de optimalidad
-cuando está a menos de `1e-6` relativo del óptimo (sobre objetivos de `~1e12`
-eso es `< 1e6 GH/s`, despreciable). `status`:
+`relative_gap_limit = 1e-6` **solo en la pasada 1**: corta la demostración
+cuando `F` está a menos de `1e-6` relativo del óptimo (con 50 EH/s son
+0.00005 EH/s, bajo lo que se muestra). Las pasadas 2 y 3 corren con gap `0`
+(hasta el óptimo o el límite de tiempo): el objetivo de la 2 está dominado por
+`B · W`, y un gap relativo ahí dejaba el poder bruto hasta ~`gap · B` veces `W`
+por debajo del óptimo (≈3% con 300% de bonus) → cada nueva optimización
+"mejoraba" el poder bruto de la anterior. `status`:
 
 | status | significado |
 |---|---|
-| `optimal` | óptimo demostrado (o dentro de `1e-6`) |
-| `feasible` | solución válida pero el solver no llegó a *demostrar* que es la óptima dentro de las 2×15 s (o cortó por el gap 1e-6). En la práctica la holgura es ínfima. UI: "válida · óptimo no demostrado" |
+| `optimal` | óptimo demostrado (`F` dentro de `1e-6`) |
+| `feasible` | solución válida pero el solver no llegó a *demostrar* que es la óptima dentro del límite de tiempo. UI: "válida · óptimo no demostrado" |
 | `infeasible` / `unknown` | no debería ocurrir (la selección vacía siempre es válida) |
 
 Tiempo típico: 0.1–4 s para inventarios de 15–90 modelos distintos.
@@ -428,6 +499,8 @@ despreciable (`~ 1e-10` relativo).
   "max_slots": 48,                          // 48 | 72 | otro
   "slot_mode": "miners",                    // "miners" | "cells"
   "time_limit_s": 10,
+  "allow_merges": false,                    // §5.9 (opcional, default false)
+  "excluded_merges": [],                    // §5.9: ids de origen descartados
   "inventory": [
     { "id": "631f...", "name": "Leap, The Frogo", "level": 1,
       "power": "105", "bonus_bp": 14, "width": 1, "quantity": 3 }
@@ -441,7 +514,12 @@ Respuesta:
 {
   "status": "optimal" | "feasible" | "infeasible",
   "picks": [ { "id": "...", "name": "...", "level": 1, "count": 5,
-               "power": "105", "bonus_bp": 14, "width": 1 } ],
+               "power": "105", "bonus_bp": 14, "width": 1,
+               "image": "" } ],          // image: del catálogo ("" si no hay)
+  "merges": [ { "from_id": "...", "from_name": "...", "from_level": 1,
+                "from_power": "750000", "count": 1,              // merges: consume 2·count, produce count
+                "to": { "id": "...", "name": "...", "level": 2, "power": "...",
+                        "bonus_bp": 250, "width": 2, "image": "..." } } ],
   "raw_power": "525",
   "bonus_bp": 14,
   "final_power": "525",

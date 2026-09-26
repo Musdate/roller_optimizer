@@ -36,6 +36,8 @@ export interface OptimizeRequestBody {
   max_slots: number;
   slot_mode: SlotMode;
   time_limit_s: number;
+  allow_merges: boolean;
+  excluded_merges: string[];
   inventory: InventoryItem[];
 }
 
@@ -47,11 +49,30 @@ export interface Pick {
   power: string;
   bonus_bp: number;
   width: number;
+  image?: string;
+}
+
+/** Merge propuesto: consume 2·count copias del origen, produce count de `to`. */
+export interface Merge {
+  from_id: string;
+  from_name: string;
+  from_level: number;
+  from_power: string;
+  count: number;
+  to: CatalogMiner;
+}
+
+/** Escalón de merge descartado a mano (se identifica por el modelo origen). */
+export interface ExcludedMerge {
+  from_id: string;
+  from_name: string;
+  from_level: number;
 }
 
 export interface OptimizeResponse {
   status: string;
   picks: Pick[];
+  merges: Merge[];
   raw_power: string;
   bonus_bp: number;
   bonus_pct: number;
