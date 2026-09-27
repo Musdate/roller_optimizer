@@ -6,6 +6,7 @@ import type {
   InventoryItem,
   Merge,
   RoomImportItem,
+  TargetMode,
   TargetUnit,
 } from "./types";
 
@@ -86,6 +87,45 @@ function clearRoomCell(
   return next;
 }
 
+/** Celda donde poner un minero de `width`: la pedida si está libre (su
+ *  estante completo si ocupa 2), si no el primer hueco compatible. */
+function pickSpot(
+  slots: (string | null)[],
+  width: number,
+  atCellIndex?: number,
+): number | null {
+  if (atCellIndex != null) {
+    if (width >= 2) {
+      const shelfStart = atCellIndex - (atCellIndex % 2);
+      if (slots[shelfStart] == null && slots[shelfStart + 1] == null) return shelfStart;
+    } else if (slots[atCellIndex] == null) {
+      return atCellIndex;
+    }
+  }
+  return findFirstFit(slots, width);
+}
+
+/** Fija `quantity` (acotando `simUsed`); borra el modelo si queda vacío. */
+function withQuantity(
+  inventory: Record<string, InventoryItem>,
+  id: string,
+  qty: (cur: InventoryItem) => number,
+): { inventory: Record<string, InventoryItem> } {
+  const cur = inventory[id];
+  if (!cur) return { inventory };
+  const q = Math.max(0, Math.floor(qty(cur)) || 0);
+  const next = { ...cur, quantity: q, simUsed: Math.min(cur.simUsed ?? 0, q) };
+  if (isEmpty(next)) {
+    const { [id]: _drop, ...rest } = inventory;
+    return { inventory: rest };
+  }
+  return { inventory: { ...inventory, [id]: next } };
+}
+
+/** Un modelo sin inventario, sin sala y sin planeado ya no tiene nada que mostrar. */
+const isEmpty = (it: InventoryItem): boolean =>
+  it.quantity <= 0 && (it.inRoom ?? 0) <= 0 && (it.planned ?? 0) <= 0;
+
 /** Repara `slots` para que coincida con los `inRoom` actuales del
  *  inventario: recorta copias de más (desde el final) y agrega las que
  *  falten en el primer hueco libre. Pura — no muta. */
@@ -156,6 +196,12 @@ interface State {
   invSort: InvSort;
   targetNum: string;
   targetUnit: TargetUnit;
+  /** Liga objetivo o poder personalizado (RULES.md §5.4). */
+  targetMode: TargetMode;
+  /** `level` de la liga elegida; null = sin elegir todavía. */
+  leagueLevel: number | null;
+  /** Margen bajo el tope, en % (RULES.md §5.2). */
+  marginPct: string;
   rooms: number;
   /** Sala 1 por posición: 1 entrada por celda física (0..95). */
   roomSlots: (string | null)[];
@@ -168,10 +214,11 @@ interface State {
   addPlanned: (m: CatalogMiner, qty?: number) => void;
   addCustom: (m: Omit<InventoryItem, "quantity"> & { quantity: number }) => void;
   setQuantity: (id: string, qty: number) => void;
-  setInRoom: (id: string, n: number) => void;
+  /** X de "Mi inventario": elimina `n` copias del inventario (RULES.md §5.5). */
+  removeFromInventory: (id: string, n: number) => void;
   setPlanned: (id: string, n: number) => void;
-  /** Aplica primero los `merges` al inventario (RULES.md §5.9) y después
-   *  fija `inRoom = counts[id]`. */
+  /** Arma la sala con el resultado sin tocar "Mi inventario": las copias
+   *  del inventario y los merges se simulan con `simUsed` (RULES.md §5.7). */
   applyRoom: (counts: Record<string, number>, merges?: Merge[]) => void;
   /** Reemplaza la sala con lo que la API de RollerCoin dice que está
    *  puesto AHORA en el juego real (ver `importRealRoom`). A diferencia de
@@ -182,25 +229,29 @@ interface State {
    *  de copias que seguís teniendo. */
   importRoomFromApi: (items: RoomImportItem[], slots: (string | null)[]) => void;
   setRollercoinUserId: (v: string) => void;
-  /** Pasa una copia del inventario a la celda dada (drag&drop). Sin celda
-   *  (o si está ocupada) cae en el primer hueco compatible. */
+  /** Pone en la celda dada una copia de "Mi inventario" sin descontarla
+   *  del inventario (`simUsed += 1`). Sin celda (o si está ocupada) cae en
+   *  el primer hueco compatible. */
   placeInRoomAt: (id: string, atCellIndex?: number) => void;
-  /** Saca de la sala lo que ocupa la celda `cellIndex` y lo devuelve al
-   *  banco (solo baja `inRoom`). */
-  unplaceFromRoom: (cellIndex: number) => void;
-  /** Saca de la sala lo que ocupa la celda `cellIndex` y elimina esa copia
-   *  (baja `quantity` con `inRoom`): no vuelve al banco. */
+  /** Pone en la sala un minero arrastrado desde el catálogo (no toca el
+   *  inventario). */
+  addToRoom: (m: CatalogMiner, atCellIndex?: number) => void;
+  /** Saca de la sala lo que ocupa la celda `cellIndex`. Nunca pasa a "Mi
+   *  inventario" (RULES.md §5.5). */
   removeFromRoom: (cellIndex: number) => void;
   /** Mueve dentro de la sala (drag&drop entre celdas). */
   reorderRoomSlot: (fromCellIndex: number, toCellIndex: number) => void;
-  /** Vacía la sala por completo: quita todos los mineros puestos sin
-   *  devolverlos al banco (baja `quantity` en lo que estaba en sala). */
+  /** Vacía la sala por completo (no toca el inventario). */
   clearRoom: () => void;
   mergeParsedInventory: (
     items: Array<Record<string, unknown>>,
     replace: boolean,
   ) => void;
-  loadState: (data: { rooms?: unknown; inventory: Array<Record<string, unknown>> }) => void;
+  loadState: (data: {
+    version?: unknown;
+    rooms?: unknown;
+    inventory: Array<Record<string, unknown>>;
+  }) => void;
   remove: (id: string) => void;
   clearInventory: () => void;
   clearPlanned: () => void;
@@ -211,6 +262,9 @@ interface State {
   setInvSort: (v: InvSort) => void;
   setTargetNum: (v: string) => void;
   setTargetUnit: (v: TargetUnit) => void;
+  setTargetMode: (v: TargetMode) => void;
+  setLeagueLevel: (v: number | null) => void;
+  setMarginPct: (v: string) => void;
   setRooms: (v: number) => void;
   excludeMerge: (m: ExcludedMerge) => void;
   includeMerge: (fromId: string) => void;
@@ -228,6 +282,9 @@ export const useStore = create<State>()(
       invSort: "recent",
       targetNum: "1",
       targetUnit: "PH",
+      targetMode: "league",
+      leagueLevel: null,
+      marginPct: "1",
       rooms: 1,
       roomSlots: Array(ROOM1_CELLS).fill(null),
       rollercoinUserId: "",
@@ -280,83 +337,62 @@ export const useStore = create<State>()(
           },
         })),
 
-      setQuantity: (id, qty) =>
-        set((s) => {
-          const cur = s.inventory[id];
-          if (!cur) return s;
-          const q = Math.max(0, Math.floor(qty) || 0);
-          if (q === 0 && (cur.planned ?? 0) === 0) {
-            const { [id]: _drop, ...rest } = s.inventory;
-            return { inventory: rest };
-          }
-          return {
-            inventory: {
-              ...s.inventory,
-              [id]: { ...cur, quantity: q, inRoom: Math.min(cur.inRoom ?? 0, q) },
-            },
-          };
-        }),
+      setQuantity: (id, qty) => set((s) => withQuantity(s.inventory, id, () => qty)),
 
-      setInRoom: (id, n) =>
-        set((s) => {
-          const cur = s.inventory[id];
-          if (!cur) return s;
-          const clamped = Math.max(0, Math.min(Math.floor(n) || 0, cur.quantity));
-          return { inventory: { ...s.inventory, [id]: { ...cur, inRoom: clamped } } };
-        }),
+      removeFromInventory: (id, n) =>
+        set((s) => withQuantity(s.inventory, id, (cur) => cur.quantity - n)),
 
       setPlanned: (id, n) =>
         set((s) => {
           const cur = s.inventory[id];
           if (!cur) return s;
-          const p = Math.max(0, Math.floor(n) || 0);
-          if (p === 0 && cur.quantity === 0) {
+          const next = { ...cur, planned: Math.max(0, Math.floor(n) || 0) };
+          if (isEmpty(next)) {
             const { [id]: _drop, ...rest } = s.inventory;
             return { inventory: rest };
           }
-          return { inventory: { ...s.inventory, [id]: { ...cur, planned: p } } };
+          return { inventory: { ...s.inventory, [id]: next } };
         }),
 
       applyRoom: (counts, merges = []) =>
         set((s) => {
-          const base: Record<string, InventoryItem> = { ...s.inventory };
+          const inv: Record<string, InventoryItem> = { ...s.inventory };
+          const consumed: Record<string, number> = {};
+          const produced: Record<string, number> = {};
           for (const mg of merges) {
-            const src = base[mg.from_id];
-            if (src) {
-              // el optimizador cuenta quantity + planned: si faltan copias
-              // propias, las del merge salen de lo planeado
-              const need = 2 * mg.count;
-              const fromQty = Math.min(src.quantity, need);
-              const fromPlanned = Math.min(src.planned ?? 0, need - fromQty);
-              base[mg.from_id] = {
-                ...src,
-                quantity: src.quantity - fromQty,
-                planned: (src.planned ?? 0) - fromPlanned,
-              };
-            }
-            const dst = base[mg.to.id];
-            base[mg.to.id] = dst
-              ? { ...dst, quantity: dst.quantity + mg.count }
-              : { ...mg.to, quantity: mg.count, order: nextOrder(base) };
+            consumed[mg.from_id] = (consumed[mg.from_id] ?? 0) + 2 * mg.count;
+            produced[mg.to.id] = (produced[mg.to.id] ?? 0) + mg.count;
+            if (!inv[mg.to.id]) inv[mg.to.id] = { ...mg.to, quantity: 0, order: nextOrder(inv) };
           }
 
-          const inv: Record<string, InventoryItem> = {};
-          for (const [id, cur] of Object.entries(base)) {
-            if (cur.quantity <= 0 && (cur.planned ?? 0) <= 0 && !(counts[id] > 0)) continue;
+          // Simula sin tocar `quantity` (RULES.md §5.7): las copias del
+          // inventario que usa la sala o un merge se cuentan en `simUsed`.
+          for (const [id, cur] of Object.entries(inv)) {
+            const q = cur.quantity;
+            const room = cur.inRoom ?? 0;
+            let used = cur.simUsed ?? 0;
+            let planned = cur.planned ?? 0;
             const c = Math.max(0, Math.floor(counts[id] ?? 0));
-            if (c <= cur.quantity) {
-              inv[id] = { ...cur, inRoom: c };
-            } else {
-              // faltan copias: se "adquieren" las planeadas necesarias
-              const need = c - cur.quantity;
-              const fromPlanned = Math.min(cur.planned ?? 0, need);
-              inv[id] = {
-                ...cur,
-                quantity: c,
-                planned: (cur.planned ?? 0) - fromPlanned,
-                inRoom: c,
-              };
-            }
+            const take = (n: number) => {
+              const fromInv = Math.min(n, q - used);
+              used += fromInv;
+              const fromPlanned = Math.min(n - fromInv, planned);
+              planned -= fromPlanned;
+            };
+
+            // 1) las que salen: primero al merge; del resto, se liberan las
+            //    que venían del inventario y las demás se eliminan
+            const out = Math.max(0, room - c);
+            const toMerge = Math.min(out, consumed[id] ?? 0);
+            used -= Math.min(out - toMerge, used);
+            // 2) lo que el merge consume y no salió de la sala
+            take((consumed[id] ?? 0) - toMerge);
+            // 3) las que entran: de los merges, del inventario, de lo planeado
+            const inn = Math.max(0, c - room);
+            take(Math.max(0, inn - (produced[id] ?? 0)));
+
+            inv[id] = { ...cur, inRoom: c, simUsed: used, planned: planned || undefined };
+            if (isEmpty(inv[id])) delete inv[id];
           }
           return { inventory: inv };
         }),
@@ -366,13 +402,11 @@ export const useStore = create<State>()(
           const nextSlots = slots.slice(0, ROOM1_CELLS);
           while (nextSlots.length < ROOM1_CELLS) nextSlots.push(null);
 
+          // La sala pasa a ser la real: se reemplaza entera y la simulación
+          // se descarta (`simUsed = 0`). "Mi inventario" no se toca.
           const inv: Record<string, InventoryItem> = {};
-          // arranca solo con lo "en banco" (quantity - inRoom): la parte
-          // puesta en sala se descarta entera, la vuelva a mencionar o no
-          // la API (si ya no está puesta, se asume que no la tenés más).
           for (const [id, it] of Object.entries(s.inventory)) {
-            const bench = Math.max(0, it.quantity - (it.inRoom ?? 0));
-            inv[id] = { ...it, quantity: bench, inRoom: 0 };
+            inv[id] = { ...it, inRoom: 0, simUsed: 0 };
           }
           let ord = nextOrder(s.inventory) - 1;
           for (const ri of items) {
@@ -382,7 +416,6 @@ export const useStore = create<State>()(
             if (cur) {
               inv[ri.id] = {
                 ...cur,
-                quantity: cur.quantity + c,
                 inRoom: c,
                 name: ri.name,
                 level: ri.level,
@@ -399,7 +432,7 @@ export const useStore = create<State>()(
                 power: ri.power,
                 bonus_bp: ri.bonus_bp,
                 width: ri.width,
-                quantity: c,
+                quantity: 0,
                 inRoom: c,
                 image: ri.image,
                 order: ++ord,
@@ -407,7 +440,7 @@ export const useStore = create<State>()(
             }
           }
           for (const [id, it] of Object.entries(inv)) {
-            if (it.quantity <= 0 && (it.planned ?? 0) <= 0) delete inv[id];
+            if (isEmpty(it)) delete inv[id];
           }
           return { inventory: inv, roomSlots: nextSlots };
         }),
@@ -418,47 +451,48 @@ export const useStore = create<State>()(
         set((s) => {
           const cur = s.inventory[id];
           if (!cur) return s;
-          const inRoomNow = cur.inRoom ?? 0;
-          if (inRoomNow >= cur.quantity) return s; // no hay copias libres en inventario
+          const used = cur.simUsed ?? 0;
+          if (used >= cur.quantity) return s; // no quedan copias sin usar en el inventario
           const slots = reconcileRoomSlots(s.roomSlots, s.inventory);
-          const w = cur.width;
-
-          let spot: number | null = null;
-          if (atCellIndex != null) {
-            if (w >= 2) {
-              const shelfStart = atCellIndex - (atCellIndex % 2);
-              if (slots[shelfStart] == null && slots[shelfStart + 1] == null) spot = shelfStart;
-            } else if (slots[atCellIndex] == null) {
-              spot = atCellIndex;
-            }
-          }
-          if (spot == null) spot = findFirstFit(slots, w); // celda pedida ocupada, o sin celda -> primer hueco
+          const spot = pickSpot(slots, cur.width, atCellIndex);
           if (spot == null) return s; // sala llena
 
           const next = [...slots];
           next[spot] = id;
-          if (w >= 2) next[spot + 1] = id;
+          if (cur.width >= 2) next[spot + 1] = id;
           return {
-            inventory: { ...s.inventory, [id]: { ...cur, inRoom: inRoomNow + 1 } },
+            inventory: {
+              ...s.inventory,
+              [id]: { ...cur, inRoom: (cur.inRoom ?? 0) + 1, simUsed: used + 1 },
+            },
             roomSlots: next,
           };
         }),
 
-      unplaceFromRoom: (cellIndex) =>
+      addToRoom: (m, atCellIndex) =>
         set((s) => {
           const slots = reconcileRoomSlots(s.roomSlots, s.inventory);
-          const id = slots[cellIndex];
-          if (id == null) return s;
-          const cur = s.inventory[id];
-          if (!cur) return s;
-          const next = clearRoomCell(slots, cellIndex, cur.width);
-          return {
-            inventory: {
-              ...s.inventory,
-              [id]: { ...cur, inRoom: Math.max(0, (cur.inRoom ?? 0) - 1) },
-            },
-            roomSlots: next,
-          };
+          const spot = pickSpot(slots, m.width, atCellIndex);
+          if (spot == null) return s; // sala llena
+          const cur = s.inventory[m.id];
+          const item: InventoryItem = cur
+            ? { ...cur, inRoom: (cur.inRoom ?? 0) + 1 }
+            : {
+                id: m.id,
+                name: m.name,
+                level: m.level,
+                power: m.power,
+                bonus_bp: m.bonus_bp,
+                width: m.width,
+                quantity: 0,
+                inRoom: 1,
+                image: m.image,
+                order: nextOrder(s.inventory),
+              };
+          const next = [...slots];
+          next[spot] = m.id;
+          if (m.width >= 2) next[spot + 1] = m.id;
+          return { inventory: { ...s.inventory, [m.id]: item }, roomSlots: next };
         }),
 
       removeFromRoom: (cellIndex) =>
@@ -469,13 +503,16 @@ export const useStore = create<State>()(
           const cur = s.inventory[id];
           if (!cur) return s;
           const next = clearRoomCell(slots, cellIndex, cur.width);
-          // Baja `quantity` junto con `inRoom`: esa copia se elimina, no
-          // vuelve al banco.
-          const inRoom = Math.max(0, (cur.inRoom ?? 0) - 1);
-          const quantity = Math.max(0, cur.quantity - 1);
+          // Si venía del inventario, esa copia deja de estar usada; si no, se
+          // elimina. Nunca pasa a "Mi inventario" (RULES.md §5.5).
+          const item = {
+            ...cur,
+            inRoom: Math.max(0, (cur.inRoom ?? 0) - 1),
+            simUsed: Math.max(0, (cur.simUsed ?? 0) - 1),
+          };
           const inv = { ...s.inventory };
-          if (quantity <= 0 && (cur.planned ?? 0) <= 0) delete inv[id];
-          else inv[id] = { ...cur, inRoom, quantity };
+          if (isEmpty(item)) delete inv[id];
+          else inv[id] = item;
           return { inventory: inv, roomSlots: next };
         }),
 
@@ -535,9 +572,8 @@ export const useStore = create<State>()(
         set((s) => {
           const inv: Record<string, InventoryItem> = {};
           for (const [id, it] of Object.entries(s.inventory)) {
-            const quantity = Math.max(0, it.quantity - (it.inRoom ?? 0));
-            if (quantity <= 0 && (it.planned ?? 0) <= 0) continue;
-            inv[id] = { ...it, quantity, inRoom: 0 };
+            const next = { ...it, inRoom: 0, simUsed: 0 };
+            if (!isEmpty(next)) inv[id] = next;
           }
           return { inventory: inv, roomSlots: Array(ROOM1_CELLS).fill(null) };
         }),
@@ -548,20 +584,11 @@ export const useStore = create<State>()(
             const n = Math.floor(Number(v));
             return Number.isFinite(n) ? n : def;
           };
-          // En RollerCoin, lo que está puesto en la sala NO aparece en el
-          // texto que se copia de la página de inventario (son vistas
-          // separadas ahí) -> "reemplazar" nunca debe tocarlo. Se arranca
-          // la cantidad de cada ítem existente en su `inRoom` (lo puesto,
-          // se preserva tal cual) y se resetea solo lo que estaba "en
-          // banco" (quantity - inRoom); lo pegado se SUMA desde ahí, así
-          // que un id que sigue en lo pegado termina en inRoom + lo nuevo,
-          // y uno que no aparece en absoluto se queda solo con lo que
-          // tenía en sala (ni se borra ni pierde su lugar), en vez de
-          // asumir que ya no lo tenés por no estar en un texto que jamás
-          // iba a mencionarlo mientras estuviera puesto.
+          // El texto del juego es solo el inventario (lo puesto en la sala no
+          // aparece ahí): se reemplaza o suma `quantity` y nada más.
           const inv: Record<string, InventoryItem> = {};
           for (const [id, it] of Object.entries(s.inventory)) {
-            inv[id] = replace ? { ...it, quantity: it.inRoom ?? 0 } : { ...it };
+            inv[id] = replace ? { ...it, quantity: 0 } : { ...it };
           }
           let ord = nextOrder(s.inventory) - 1;
           for (const p of items) {
@@ -570,8 +597,7 @@ export const useStore = create<State>()(
             const qty = Math.max(0, num(p.quantity));
             const cur = inv[id];
             if (cur) {
-              const q = cur.quantity + qty;
-              inv[id] = { ...cur, quantity: q, inRoom: Math.min(cur.inRoom ?? 0, q) };
+              inv[id] = { ...cur, quantity: cur.quantity + qty };
             } else {
               inv[id] = {
                 id,
@@ -587,7 +613,8 @@ export const useStore = create<State>()(
             }
           }
           for (const [id, it] of Object.entries(inv)) {
-            if (it.quantity <= 0 && (it.planned ?? 0) <= 0) delete inv[id];
+            inv[id] = { ...it, simUsed: Math.min(it.simUsed ?? 0, it.quantity) };
+            if (isEmpty(inv[id])) delete inv[id];
           }
           return { inventory: inv };
         }),
@@ -598,16 +625,19 @@ export const useStore = create<State>()(
             const n = Math.floor(Number(v));
             return Number.isFinite(n) ? n : def;
           };
+          // version < 2: `quantity` incluía lo puesto en la sala (RULES.md §5.5)
+          const legacy = num(data.version, 1) < 2;
           const inv: Record<string, InventoryItem> = {};
           let ord = 0;
           for (const raw of Array.isArray(data.inventory) ? data.inventory : []) {
             const id = String(raw.id ?? "").trim();
             if (!id) continue;
-            const quantity = Math.max(0, num(raw.quantity));
+            const inRoom = Math.max(0, num(raw.inRoom));
+            const quantity = Math.max(0, num(raw.quantity) - (legacy ? inRoom : 0));
             const planned = Math.max(0, num(raw.planned));
-            if (quantity === 0 && planned === 0) continue;
+            if (quantity === 0 && inRoom === 0 && planned === 0) continue;
             const width = Math.max(1, num(raw.width, 1));
-            const inRoom = Math.min(quantity, Math.max(0, num(raw.inRoom)));
+            const simUsed = legacy ? 0 : Math.min(quantity, Math.max(0, num(raw.simUsed)));
             inv[id] = {
               id,
               name: String(raw.name ?? ""),
@@ -617,6 +647,7 @@ export const useStore = create<State>()(
               width,
               quantity,
               inRoom: inRoom || undefined,
+              simUsed: simUsed || undefined,
               planned: planned || undefined,
               image: raw.image ? String(raw.image) : undefined,
               order: raw.order != null ? num(raw.order) : ++ord,
@@ -635,21 +666,14 @@ export const useStore = create<State>()(
           return { inventory: rest };
         }),
 
-      // "vaciar" en Mi inventario: solo borra lo que está "en banco"
-      // (quantity - inRoom). Lo puesto en la sala se preserva tal cual --
-      // igual que "reemplazar inventario" y la sincronización con la sala
-      // real, esto nunca debe vaciar la sala de rebote -- y lo "planeado"
-      // en Nueva adquisición tampoco se toca (tiene su propio "vaciar").
+      // "vaciar" en Mi inventario: solo el inventario. La sala y lo planeado
+      // en Nueva adquisición no se tocan (tienen su propio "vaciar").
       clearInventory: () =>
         set((s) => {
           const inv: Record<string, InventoryItem> = {};
           for (const [id, it] of Object.entries(s.inventory)) {
-            const inRoom = it.inRoom ?? 0;
-            if (inRoom > 0) {
-              inv[id] = { ...it, quantity: inRoom };
-            } else if ((it.planned ?? 0) > 0) {
-              inv[id] = { ...it, quantity: 0 };
-            }
+            const next = { ...it, quantity: 0, simUsed: 0 };
+            if (!isEmpty(next)) inv[id] = next;
           }
           return { inventory: inv };
         }),
@@ -658,9 +682,8 @@ export const useStore = create<State>()(
         set((s) => {
           const inv: Record<string, InventoryItem> = {};
           for (const [id, it] of Object.entries(s.inventory)) {
-            if (it.quantity <= 0) continue; // sin stock y sin planeo: se cae
             const { planned: _drop, ...rest } = it;
-            inv[id] = rest;
+            if (!isEmpty(rest)) inv[id] = rest;
           }
           return { inventory: inv };
         }),
@@ -687,6 +710,9 @@ export const useStore = create<State>()(
       setInvSort: (v) => set({ invSort: v }),
       setTargetNum: (v) => set({ targetNum: v }),
       setTargetUnit: (v) => set({ targetUnit: v }),
+      setTargetMode: (v) => set({ targetMode: v }),
+      setLeagueLevel: (v) => set({ leagueLevel: v }),
+      setMarginPct: (v) => set({ marginPct: v }),
       setRooms: (v) => set({ rooms: Math.min(MAX_ROOMS, Math.max(1, Math.floor(v))) }),
       excludeMerge: (m) =>
         set((s) =>
@@ -697,7 +723,25 @@ export const useStore = create<State>()(
       includeMerge: (fromId) =>
         set((s) => ({ excludedMerges: s.excludedMerges.filter((e) => e.from_id !== fromId) })),
     }),
-    { name: "roller-optimizer" },
+    {
+      name: "roller-optimizer",
+      version: 2,
+      // v1: `quantity` incluía lo puesto en la sala; desde v2 "Mi inventario"
+      // y la sala son independientes (RULES.md §5.5).
+      migrate: (persisted, version) => {
+        const st = persisted as { inventory?: Record<string, InventoryItem> };
+        if (version < 2 && st?.inventory) {
+          for (const [id, it] of Object.entries(st.inventory)) {
+            st.inventory[id] = {
+              ...it,
+              quantity: Math.max(0, it.quantity - (it.inRoom ?? 0)),
+              simUsed: 0,
+            };
+          }
+        }
+        return st as State;
+      },
+    },
   ),
 );
 
@@ -705,10 +749,14 @@ export const useStore = create<State>()(
 export const selectInventoryList = (s: State): InventoryItem[] =>
   Object.values(s.inventory);
 
-/** Lista para el optimizador: copias efectivas = quantity + planned. */
+/** Lista para el optimizador: copias efectivas = inventario sin usar + sala +
+ *  planeado (RULES.md §5.5). */
 export const selectOptimizeList = (s: State): InventoryItem[] =>
   Object.values(s.inventory)
-    .map((i) => ({ ...i, quantity: i.quantity + (i.planned ?? 0) }))
+    .map((i) => ({
+      ...i,
+      quantity: i.quantity - (i.simUsed ?? 0) + (i.inRoom ?? 0) + (i.planned ?? 0),
+    }))
     .filter((i) => i.quantity > 0);
 
 /** Mineros que tengo puestos en la sala ahora mismo (inRoom > 0). */
@@ -720,9 +768,9 @@ export const selectRoomList = (s: State): InventoryItem[] =>
 export const selectRoomSlots = (s: State): (string | null)[] =>
   reconcileRoomSlots(s.roomSlots, s.inventory);
 
-/** Mineros con copias disponibles fuera de la sala (quantity - inRoom > 0). */
+/** Mineros de "Mi inventario" (quantity > 0). */
 export const selectBenchList = (s: State): InventoryItem[] =>
-  Object.values(s.inventory).filter((i) => i.quantity - (i.inRoom ?? 0) > 0);
+  Object.values(s.inventory).filter((i) => i.quantity > 0);
 
 /** Mineros que planeo adquirir (planned > 0). */
 export const selectPlannedList = (s: State): InventoryItem[] =>

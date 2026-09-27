@@ -46,17 +46,20 @@ class InventoryItem(BaseModel):
 
 
 class OptimizeRequestBody(BaseModel):
-    target_final_power: int
+    target_final_power: int | None  # None = sin tope (última liga)
+    margin_bp: int | None = Field(default=None, ge=0, le=10000)  # RULES.md §5.2
+    primary_only: bool = False  # "¿cuánto aporta?" (RULES.md §5.9)
     max_slots: int = Field(gt=0)
     slot_mode: str = "miners"
-    time_limit_s: float = Field(default=10.0, gt=0, le=120)
+    time_limit_s: float = Field(default=10.0, gt=0, le=300)
     allow_merges: bool = False
     excluded_merges: list[str] = []
     inventory: list[InventoryItem]
 
-    _v_target = field_validator("target_final_power", mode="before")(
-        staticmethod(_to_int)
-    )
+    @field_validator("target_final_power", mode="before")
+    @classmethod
+    def _target(cls, v: object) -> int | None:
+        return None if v is None else _to_int(v)
 
     @field_validator("slot_mode")
     @classmethod
@@ -104,13 +107,41 @@ class OptimizeResponse(BaseModel):
     bonus_bp: int
     bonus_pct: float
     final_power: str
-    target_final_power: str
-    headroom: str
+    target_final_power: str | None  # None = sin tope
+    floor_power: str
+    in_window: bool
+    headroom: str | None
     headroom_pct: float
     slots_used: int
     cells_used: int
     scale: int
     solve_time_s: float
+
+
+class OptimizeJobStarted(BaseModel):
+    job_id: str
+
+
+class OptimizeJobStatus(BaseModel):
+    """Estado de un trabajo de optimización (RULES.md §5.10, §8)."""
+
+    state: str  # "running" | "done" | "error"
+    elapsed_s: float
+    time_limit_s: float
+    phase: str = ""
+    best: str = ""   # GH/s
+    bound: str = ""  # GH/s
+    stopping: bool = False
+    result: OptimizeResponse | None = None
+    error: str = ""
+
+
+class LeagueOut(BaseModel):
+    level: int
+    title: str
+    min_power: str
+    max_power: str | None  # tope; None en la última liga
+    image: str = ""
 
 
 class ParseInventoryBody(BaseModel):

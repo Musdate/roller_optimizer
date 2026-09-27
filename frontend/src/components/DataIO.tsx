@@ -1,8 +1,8 @@
 import { useRef } from "react";
 import { useStore, selectInventoryList } from "../store";
 
-/** Exportar / importar todo el estado: sala (inRoom), inventario (quantity) y
- *  nueva adquisición (planned), más el nº de salas. */
+/** Exportar / importar todo el estado: sala (inRoom), inventario (quantity,
+ *  simUsed) y nueva adquisición (planned), más el nº de salas. */
 export default function DataIO() {
   const fullList = useStore(selectInventoryList);
   const rooms = useStore((s) => s.rooms);
@@ -10,7 +10,7 @@ export default function DataIO() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   function exportJson() {
-    const data = { version: 1, rooms, inventory: fullList };
+    const data = { version: 2, rooms, inventory: fullList };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -27,7 +27,7 @@ export default function DataIO() {
         const parsed = JSON.parse(txt);
         const payload = Array.isArray(parsed)
           ? { inventory: parsed } // formato antiguo: array plano
-          : { rooms: parsed?.rooms, inventory: parsed?.inventory };
+          : { version: parsed?.version, rooms: parsed?.rooms, inventory: parsed?.inventory };
         if (!Array.isArray(payload.inventory)) {
           alert("El archivo no tiene un inventario válido.");
           return;
@@ -42,7 +42,9 @@ export default function DataIO() {
         }
         loadState(payload);
       })
-      .catch((e) => alert("JSON inválido: " + e));
+      .catch(() =>
+        alert("No se pudo leer el archivo. Verifica que sea una exportación de esta aplicación."),
+      );
   }
 
   return (

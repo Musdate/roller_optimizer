@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import itertools
 import random
+import threading
+import time
 
 import pytest
 
@@ -15,7 +17,14 @@ from app.optimizer import (
 )
 
 
-def brute_force(models: list[MinerModel], req: OptimizeRequest):
+def window_key(fin, bonus, raw, floor, miners):
+    """Orden de RULES.md §5.3 (sin merges): dentro de la ventana siempre gana."""
+    if floor is not None and fin >= floor:
+        return (1, raw, fin, -miners)
+    return (0, fin, -bonus, raw, -miners)
+
+
+def brute_force(models: list[MinerModel], req: OptimizeRequest, floor=None):
     """Óptimo de referencia por enumeración (solo para inventarios chicos)."""
     ranges = [range(min(m.quantity, req.max_slots) + 1) for m in models]
     best = None  # (final, -bonus, raw, counts)
@@ -31,15 +40,15 @@ def brute_force(models: list[MinerModel], req: OptimizeRequest):
         fin = final_power(raw, bonus)
         if fin > req.target_final_power:
             continue
-        key = (fin, -bonus, raw)
+        key = window_key(fin, bonus, raw, floor, sum(combo))
         if best is None or key > best[0]:
             best = (key, combo)
     return best
 
 
-def result_key(res):
-    raw = res.raw_power
-    return (res.final_power, -res.bonus_bp, raw)
+def result_key(res, floor=None):
+    miners = sum(p.count for p in res.picks)
+    return window_key(res.final_power, res.bonus_bp, res.raw_power, floor, miners)
 
 
 # --------------------------------------------------------------------------- #
@@ -264,7 +273,7 @@ def test_no_mergea_copias_que_no_se_usan():
     assert sum(m.count for m in res.merges) == 1
 
 
-def brute_force_merges(models, req):
+def brute_force_merges(models, req, floor=None):
     """Como brute_force pero enumerando merges en una escalera c0 -> c1 -> c2."""
     chain = [m for m in models if m.id.startswith("c")]
     best = None
@@ -290,7 +299,7 @@ def brute_force_merges(models, req):
                 fin = final_power(raw, bonus)
                 if fin > req.target_final_power:
                     continue
-                key = (fin, -bonus, raw, -(k0 + k1))
+                key = window_key(fin, bonus, raw, floor, sum(combo)) + (-(k0 + k1),)
                 if best is None or key > best:
                     best = key
     return best
@@ -342,3 +351,231 @@ def test_fuzz_merges_vs_fuerza_bruta(seed):
         f"seed={seed} models={models} slots={max_slots}/{slot_mode} target={target}\n"
         f"got  {got}\nwant {ref}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# Ventana: margen bajo el tope (RULES.md §5.2, §5.3)
+# --------------------------------------------------------------------------- #
+
+
+def test_ventana_prefiere_bruto_sobre_poder_final():
+    # a: 100 bruto, +100% -> F 200 (justo el tope). b+c: 190 bruto sin bonus.
+    a = MinerModel(id="a", power=100, bonus_bp=10000, quantity=1, name="A")
+    b = MinerModel(id="b", power=95, bonus_bp=0, quantity=2, name="B")
+    req = OptimizeRequest(target_final_power=200, max_slots=2, margin_bp=1000)
+    res = optimize([a, b], req)
+    assert res.raw_power == 190 and res.final_power == 190
+    assert res.in_window and res.floor_power == 180
+
+
+def test_sin_margen_mantiene_criterio_de_poder_final():
+    a = MinerModel(id="a", power=100, bonus_bp=10000, quantity=1, name="A")
+    b = MinerModel(id="b", power=95, bonus_bp=0, quantity=2, name="B")
+    res = optimize([a, b], OptimizeRequest(target_final_power=200, max_slots=2))
+    assert res.final_power == 200 and not res.in_window
+
+
+def test_ventana_inalcanzable_usa_respaldo():
+    a = MinerModel(id="a", power=10, bonus_bp=0, quantity=3, name="A")
+    req = OptimizeRequest(target_final_power=1000, max_slots=48, margin_bp=100)
+    res = optimize([a], req)
+    assert res.final_power == 30 and not res.in_window
+
+
+def test_ventana_desempata_por_poder_final():
+    # mismo bruto (100); con bonus sube F dentro de la ventana
+    a = MinerModel(id="a", power=100, bonus_bp=500, quantity=1, name="A")
+    b = MinerModel(id="b", power=100, bonus_bp=0, quantity=1, name="B")
+    req = OptimizeRequest(target_final_power=110, max_slots=1, margin_bp=1000)
+    res = optimize([a, b], req)
+    assert [p.id for p in res.picks] == ["a"] and res.final_power == 105
+
+
+def test_sin_tope_maximiza_bruto():
+    a = MinerModel(id="a", power=1000, bonus_bp=0, quantity=2, name="A")
+    b = MinerModel(id="b", power=900, bonus_bp=5000, quantity=2, name="B")
+    req = OptimizeRequest(target_final_power=None, max_slots=2, margin_bp=100)
+    res = optimize([a, b], req)
+    assert res.raw_power == 2000
+    assert res.target_final_power is None and res.headroom is None
+    assert res.in_window
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_fuzz_ventana_vs_fuerza_bruta(seed):
+    rng = random.Random(500 + seed)
+    models = [
+        MinerModel(
+            id=f"m{i}",
+            power=rng.choice([1, 5, 10, 25, 100, 250, 1000]),
+            bonus_bp=rng.choice([0, 0, 100, 500, 1000, 2500, 5000]),
+            quantity=rng.randint(1, 5),
+            width=rng.choice([1, 1, 2]),
+            name=f"M{i}",
+        )
+        for i in range(rng.randint(1, 4))
+    ]
+    max_slots = rng.randint(1, 8)
+    slot_mode = rng.choice(["miners", "cells"])
+    max_raw = sum(min(m.quantity, max_slots) * m.power for m in models)
+    target = rng.randint(1, final_power(max_raw, sum(m.bonus_bp for m in models)) + 50)
+    margin = rng.choice([0, 100, 500, 1000, 3000])
+    floor = target - target * margin // 10000
+
+    req = OptimizeRequest(
+        target_final_power=target, max_slots=max_slots, slot_mode=slot_mode,
+        margin_bp=margin,
+    )
+    res = optimize(models, req)
+    ref = brute_force(models, req, floor)
+
+    assert res.final_power <= target
+    assert res.in_window == (res.final_power >= floor)
+    (ref_key, _combo) = ref
+    assert result_key(res, floor) == ref_key, (
+        f"seed={seed} models={models} slots={max_slots}/{slot_mode} "
+        f"target={target} floor={floor}\ngot  {result_key(res, floor)}\nwant {ref_key}"
+    )
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_fuzz_ventana_merges_vs_fuerza_bruta(seed):
+    rng = random.Random(2000 + seed)
+    p0 = rng.choice([100, 300, 750])
+    chain = _chain(
+        [rng.randint(0, 5), rng.randint(0, 2), rng.randint(0, 1)],
+        [p0, p0 * rng.choice([2, 3]), p0 * rng.choice([5, 7])],
+        [rng.choice([0, 100]), rng.choice([0, 250]), rng.choice([0, 500])],
+        width=rng.choice([1, 2]),
+    )
+    others = [
+        MinerModel(
+            id=f"m{i}",
+            power=rng.choice([50, 200, 1000]),
+            bonus_bp=rng.choice([0, 100, 1000]),
+            quantity=rng.randint(1, 3),
+            width=rng.choice([1, 2]),
+            name=f"M{i}",
+        )
+        for i in range(rng.randint(0, 2))
+    ]
+    models = chain + others
+    max_slots = rng.randint(1, 6)
+    slot_mode = rng.choice(["miners", "cells"])
+    target = rng.randint(1, final_power(sum(m.power * 4 for m in models), 1000) + 50)
+    margin = rng.choice([100, 1000, 3000])
+    floor = target - target * margin // 10000
+
+    req = OptimizeRequest(
+        target_final_power=target, max_slots=max_slots, slot_mode=slot_mode,
+        allow_merges=True, margin_bp=margin,
+    )
+    res = optimize(models, req)
+    ref = brute_force_merges(models, req, floor)
+
+    assert res.final_power <= target
+    avail = _merged_counts(models, res)
+    assert min(avail.values()) >= 0
+    for p in res.picks:
+        assert p.count <= avail[p.id]
+    got = result_key(res, floor) + (-sum(m.count for m in res.merges),)
+    assert got == ref, (
+        f"seed={seed} models={models} slots={max_slots}/{slot_mode} "
+        f"target={target} floor={floor}\ngot  {got}\nwant {ref}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Progreso y detener (RULES.md §5.10)
+# --------------------------------------------------------------------------- #
+
+
+def _big_inventory(n=60, seed=7):
+    rng = random.Random(seed)
+    return [
+        MinerModel(
+            id=f"x{i}",
+            power=rng.randint(10**6, 10**9),
+            bonus_bp=rng.randint(0, 3000),
+            quantity=rng.randint(1, 6),
+            width=rng.choice([1, 2]),
+            name=f"X{i}",
+        )
+        for i in range(n)
+    ]
+
+
+def test_informa_progreso():
+    events = []
+    models = _big_inventory()
+    req = OptimizeRequest(
+        target_final_power=10**11, max_slots=96, slot_mode="cells",
+        margin_bp=100, time_limit_s=5,
+    )
+    res = optimize(models, req, progress=lambda **kw: events.append(kw))
+    phases = [e["phase"] for e in events if "phase" in e]
+    assert phases[0] == "raw"
+    assert any(e.get("best") for e in events)
+    assert res.final_power <= 10**11
+
+
+def test_detener_devuelve_la_mejor_encontrada():
+    stop = threading.Event()
+    stop.set()  # detenido desde el arranque: todo corre con _POLISH_S
+    models = _big_inventory(seed=11)
+    req = OptimizeRequest(
+        target_final_power=10**11, max_slots=96, slot_mode="cells",
+        margin_bp=100, time_limit_s=300,
+    )
+    t0 = time.monotonic()
+    res = optimize(models, req, stop=stop)
+    assert time.monotonic() - t0 < 30
+    assert res.final_power <= 10**11
+    assert res.picks
+
+
+def test_desempata_por_menos_mineros():
+    # 2x a y 1x b dan el mismo bruto y poder final: gana la de 1 minero
+    a = MinerModel(id="a", power=10, bonus_bp=0, quantity=2, name="A")
+    b = MinerModel(id="b", power=20, bonus_bp=0, quantity=1, name="B")
+    for margin in (None, 1000):
+        req = OptimizeRequest(target_final_power=20, max_slots=1 + 1, margin_bp=margin)
+        res = optimize([a, b], req)
+        assert [(p.id, p.count) for p in res.picks] == [("b", 1)], margin
+
+
+def test_atajo_no_repite_mineros_sin_poder():
+    solo_bonus = MinerModel(id="z", power=0, bonus_bp=100, quantity=3, name="Z")
+    a = MinerModel(id="a", power=100, bonus_bp=0, quantity=1, name="A")
+    res = optimize([solo_bonus, a], OptimizeRequest(target_final_power=10**6, max_slots=48))
+    assert {p.id: p.count for p in res.picks} == {"a": 1, "z": 1}
+
+
+# --------------------------------------------------------------------------- #
+# "¿cuánto aporta?": solo la pasada principal (RULES.md §5.9)
+# --------------------------------------------------------------------------- #
+
+
+def test_primary_only_da_el_mismo_bruto_que_la_optimizacion_completa():
+    models = _big_inventory(n=20, seed=3)
+    base = dict(target_final_power=10**10, max_slots=24, slot_mode="cells", time_limit_s=10)
+    for margin in (None, 100):
+        full = optimize(models, OptimizeRequest(**base, margin_bp=margin))
+        prim = optimize(models, OptimizeRequest(**base, margin_bp=margin, primary_only=True))
+        key = (lambda r: r.raw_power) if margin else (lambda r: r.final_power)
+        # la pasada principal corta con gap relativo 1e-6 (RULES.md §7.3)
+        assert abs(key(prim) - key(full)) <= key(full) * 1e-6, margin
+
+
+def test_aporte_del_merge_cuenta_el_minero_desplazado():
+    # 2 celdas: con merge c1 (2000) + m (600); sin merge, 2x c0 (1500)
+    models = _chain([2, 0], [750, 2000], [0, 0]) + [
+        MinerModel(id="m", power=600, bonus_bp=0, quantity=1, name="M")
+    ]
+    base = dict(target_final_power=10**6, max_slots=2, allow_merges=True, margin_bp=100)
+    res = optimize(models, OptimizeRequest(**base))
+    alt = optimize(
+        models,
+        OptimizeRequest(**base, excluded_merges=frozenset({"c0"}), primary_only=True),
+    )
+    assert res.raw_power - alt.raw_power == 1100

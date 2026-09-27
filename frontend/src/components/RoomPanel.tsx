@@ -33,14 +33,14 @@ export default function RoomPanel() {
     if (loading || inCooldown) return; // evita ráfagas de clicks / golpear la API de más
     const id = userId.trim();
     if (!id) {
-      setErr("ingresa tu ID de usuario");
+      setErr("Ingresa tu ID de usuario de RollerCoin.");
       return;
     }
     setLoading(true);
     setErr(null);
     importRealRoom(id)
       .then((res) => importRoomFromApi(res.items, res.room_slots))
-      .catch((e) => setErr(e instanceof Error ? e.message : "no se pudo sincronizar la sala"))
+      .catch((e) => setErr(e instanceof Error ? e.message : "No se pudo sincronizar la sala."))
       .finally(() => {
         setLoading(false);
         cooldown.trigger();
@@ -54,7 +54,7 @@ export default function RoomPanel() {
         <div className="row" style={{ gap: 6 }}>
           <input
             className="tiny user-id-input"
-            placeholder="User ID"
+            placeholder="ID de usuario"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
           />

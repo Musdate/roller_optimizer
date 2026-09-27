@@ -21,8 +21,9 @@ export interface InventoryItem {
   power: string;
   bonus_bp: number;
   width: number;
-  quantity: number;
-  inRoom?: number; // cuántas copias tengo puestas en la sala ahora mismo
+  quantity: number; // copias en "Mi inventario" (independiente de la sala)
+  inRoom?: number; // copias puestas en la sala
+  simUsed?: number; // copias del inventario ya usadas por la simulación (RULES.md §5.5)
   planned?: number; // cuántas copias planeo adquirir ("Nueva adquisición")
   image?: string;
   order?: number; // orden de agregado (para ordenar "más reciente")
@@ -30,9 +31,21 @@ export interface InventoryItem {
 
 export type SlotMode = "miners" | "cells";
 export type TargetUnit = "PH" | "EH" | "ZH";
+export type TargetMode = "league" | "custom";
+
+/** Liga de RollerCoin (RULES.md §6.3). Poderes en GH/s. */
+export interface League {
+  level: number;
+  title: string;
+  min_power: string;
+  max_power: string | null; // tope; null en la última liga
+  image: string;
+}
 
 export interface OptimizeRequestBody {
-  target_final_power: string;
+  target_final_power: string | null; // null = sin tope
+  margin_bp: number;
+  primary_only?: boolean; // "¿cuánto aporta?" (RULES.md §5.9)
   max_slots: number;
   slot_mode: SlotMode;
   time_limit_s: number;
@@ -77,11 +90,28 @@ export interface OptimizeResponse {
   bonus_bp: number;
   bonus_pct: number;
   final_power: string;
-  target_final_power: string;
-  headroom: string;
+  target_final_power: string | null;
+  floor_power: string;
+  in_window: boolean;
+  headroom: string | null;
   headroom_pct: number;
   slots_used: number;
   cells_used: number;
   scale: number;
   solve_time_s: number;
+}
+
+export type OptimizePhase = "raw" | "final" | "tiebreak" | "miners" | "fallback" | "";
+
+/** Estado de un trabajo de optimización (RULES.md §5.10). */
+export interface OptimizeJobStatus {
+  state: "running" | "done" | "error";
+  elapsed_s: number;
+  time_limit_s: number;
+  phase: OptimizePhase;
+  best: string;
+  bound: string;
+  stopping: boolean;
+  result: OptimizeResponse | null;
+  error: string;
 }

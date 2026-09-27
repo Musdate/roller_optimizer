@@ -87,7 +87,7 @@ export default function PlannedTable() {
                         title={`${it.width} celda${it.width > 1 ? "s" : ""}`}
                       />
                       <span className="name-row">
-                        {it.name || <span className="muted">custom</span>}
+                        {it.name || <span className="muted">Personalizado</span>}
                       </span>
                     </div>
                   </td>

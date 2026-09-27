@@ -72,6 +72,12 @@ Dos consecuencias prácticas:
   `python scripts/build_seed.py` (cwd = `backend/`) y commitea
   `app/data/catalog_seed.json`.
 
+**Variable de entorno recomendada:** `OPT_WORKERS=1` (o `2` en un plan con 1
+CPU completa). Por defecto el solver usa 8 workers; con una fracción de CPU
+compiten entre sí y rinden mucho peor (RULES.md §7.5). Con un inventario real de
+155 modelos y 1 worker, la optimización termina en ~30 s con el bruto demostrado
+óptimo.
+
 ---
 
 ## Opción B — `docker compose` a mano en el VPS (sin Dokploy)

@@ -25,7 +25,7 @@ export function parsePower(input: string): bigint {
   s = s.replace(/h\/s$|hs$/i, "").replace(/\/s$/i, "");
   s = s.replace(/,/g, ".");
   const m = s.match(/^([0-9]*\.?[0-9]+)(zh|eh|ph|th|gh|z|e|p|t|g)?$/i);
-  if (!m) throw new Error(`No se pudo interpretar "${input}" (usa GH, TH, PH, EH o ZH)`);
+  if (!m) throw new Error(`"${input}" no es un poder válido. Usa un número con GH, TH, PH, EH o ZH.`);
   const [, numStr, unit] = m;
   const factor = unit ? SUFFIX[unit] : 1n;
   const [intPart, fracPart = ""] = numStr.split(".");
@@ -38,12 +38,17 @@ export function parsePower(input: string): bigint {
  *  fijos (sin recortar ceros de sobra: "10.230 EH/s", no "10.23 EH/s") y
  *  redondeando al decimal más cercano en vez de truncar: 49.998990407 EH ->
  *  "49.999", no "49.998". */
-export function formatPower(value: bigint, decimals = 3): string {
-  if (value < 0n) return "-" + formatPower(-value, decimals);
+export function formatPower(
+  value: bigint,
+  decimals = 3,
+  truncate = false,
+  unit?: string, // unidad fija ("PH", "EH"…); sin ella, la que corresponda al valor
+): string {
+  if (value < 0n) return "-" + formatPower(-value, decimals, truncate, unit);
 
   let chosen = UNITS[0];
   for (const u of UNITS) {
-    if (value >= u.gh) chosen = u;
+    if (unit ? u.sym === unit : value >= u.gh) chosen = u;
   }
   const divisor = chosen.gh;
   let whole = value / divisor;
@@ -53,7 +58,7 @@ export function formatPower(value: bigint, decimals = 3): string {
   const scaled = remainder * scale;
   let fracDigits = scaled / divisor;
   const fracRemainder = scaled % divisor;
-  if (fracRemainder * 2n >= divisor) fracDigits += 1n; // mitad para arriba
+  if (!truncate && fracRemainder * 2n >= divisor) fracDigits += 1n; // mitad para arriba
   if (fracDigits >= scale) {
     // el redondeo "carry" a la parte entera (p. ej. x.9996 con 3 decimales)
     fracDigits -= scale;
@@ -62,6 +67,16 @@ export function formatPower(value: bigint, decimals = 3): string {
 
   const frac = fracDigits.toString().padStart(decimals, "0");
   return `${whole}.${frac} ${chosen.sym}/s`;
+}
+
+/** Unidad en que se muestran los valores de una liga (RULES.md §5.9): la de
+ *  su poder mínimo, nunca menos que PH. */
+export function leagueUnit(minPower: bigint): string {
+  let chosen = "PH";
+  for (const u of UNITS) {
+    if (u.gh > 1_000n && minPower >= u.gh) chosen = u.sym;
+  }
+  return chosen;
 }
 
 /** Separador de miles. */

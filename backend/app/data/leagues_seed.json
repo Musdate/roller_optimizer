@@ -1,0 +1,134 @@
+[
+ {
+  "level": 1,
+  "title": "Bronze I",
+  "minPower": 0,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15591.png"
+ },
+ {
+  "level": 2,
+  "title": "Bronze II",
+  "minPower": 25000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15592.png"
+ },
+ {
+  "level": 3,
+  "title": "Bronze III",
+  "minPower": 50000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15593.png"
+ },
+ {
+  "level": 4,
+  "title": "Silver I",
+  "minPower": 100000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15594.png"
+ },
+ {
+  "level": 5,
+  "title": "Silver II",
+  "minPower": 150000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15595.png"
+ },
+ {
+  "level": 6,
+  "title": "Silver III",
+  "minPower": 250000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15596.png"
+ },
+ {
+  "level": 7,
+  "title": "Gold I",
+  "minPower": 650000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15597.png"
+ },
+ {
+  "level": 8,
+  "title": "Gold II",
+  "minPower": 1500000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15598.png"
+ },
+ {
+  "level": 9,
+  "title": "Gold III",
+  "minPower": 3500000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a15599.png"
+ },
+ {
+  "level": 10,
+  "title": "Platinum I",
+  "minPower": 16000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a1559a.png"
+ },
+ {
+  "level": 11,
+  "title": "Platinum II",
+  "minPower": 50000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a1559b.png"
+ },
+ {
+  "level": 12,
+  "title": "Platinum III",
+  "minPower": 100000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a1559c.png"
+ },
+ {
+  "level": 13,
+  "title": "Diamond I",
+  "minPower": 200000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a1559d.png"
+ },
+ {
+  "level": 14,
+  "title": "Diamond II",
+  "minPower": 375000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a1559e.png"
+ },
+ {
+  "level": 15,
+  "title": "Diamond III",
+  "minPower": 650000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a1559f.png"
+ },
+ {
+  "level": 16,
+  "title": "Titan I",
+  "minPower": 1150000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a155a0.png"
+ },
+ {
+  "level": 17,
+  "title": "Titan II",
+  "minPower": 2160000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a155a1.png"
+ },
+ {
+  "level": 18,
+  "title": "Titan III",
+  "minPower": 4000000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a155a2.png"
+ },
+ {
+  "level": 19,
+  "title": "Emerald I",
+  "minPower": 13000000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a155a3.png"
+ },
+ {
+  "level": 20,
+  "title": "Emerald II",
+  "minPower": 25000000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a155a4.png"
+ },
+ {
+  "level": 21,
+  "title": "Emerald III",
+  "minPower": 70000000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a155a5.png"
+ },
+ {
+  "level": 22,
+  "title": "Legend",
+  "minPower": 1000000000000000,
+  "imageUrl": "https://static.rollercoin.com/static/img/icons/leagues/6a846d84d4be9e1aa9a155a6.png"
+ }
+]

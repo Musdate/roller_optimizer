@@ -13,9 +13,9 @@ En RollerCoin cada minero aporta:
 - un **poder** (hashrate, en `GH/s`), y
 - un **bonus** (un porcentaje).
 
-El objetivo de la app: dado un **poder final objetivo** y el **inventario de
-mineros** del usuario, encontrar la **mejor combinación** de mineros para colocar
-en la sala.
+El objetivo de la app: dada una **liga objetivo** (o un poder final tope
+personalizado) y el **inventario de mineros** del usuario, encontrar la **mejor
+combinación** de mineros para colocar en la sala sin pasarse de liga.
 
 ---
 
@@ -75,30 +75,62 @@ Clave de deduplicación: el **`id` del modelo** (equivale a `nombre + nivel`; ve
 ### 5.1 Restricción dura (techo)
 
 ```
-F(S) ≤ objetivo
+F(S) ≤ tope
 ```
 
-**No se puede pasar del objetivo.** Puede quedar por debajo, nunca por encima.
+**No se puede pasar del tope.** Puede quedar por debajo, nunca por encima. El
+tope de una liga es el `minPower` de la liga siguiente **menos 1 GH/s** (§6.3);
+con "Personalizado" es el número que ingresa el usuario. La liga más alta
+(Legend) no tiene tope.
 
-### 5.2 Sin piso mínimo
+### 5.2 Piso (margen)
 
-Cualquier `F(S) ≤ objetivo` es válido (incluida la combinación vacía, `F = 0`).
-No hay un porcentaje mínimo del objetivo que haya que alcanzar.
+```
+piso = tope − ⌊tope · margen_bp / 10000⌋
+```
+
+- `margen` es un **porcentaje del tope** (input "Margen", default **1%**; se
+  manda en bp: `1% = 100`). Porcentaje y no un valor fijo porque los topes van
+  de TH/s a miles de EH/s.
+- **Ventana** = `piso ≤ F(S) ≤ tope`. Una sala dentro de la ventana está "cerca
+  del tope"; dentro de ella importa el poder bruto (el bonus de los hámsters /
+  freon aplica sobre el bruto y no cuenta para la liga — eso se calcula en la
+  vista Freon, esta vista no lo usa).
+- Sin tope (Legend) no hay piso: `piso = 0`.
+- El piso es una **preferencia**, no una restricción dura: si ninguna
+  combinación llega al piso, se usa el criterio de respaldo (§5.3).
 
 ### 5.3 Orden de prioridad (lexicográfico)
 
-Entre todas las combinaciones válidas se elige, **en este orden**:
+**Si alguna combinación entra en la ventana**, entre las que entran se elige,
+**en este orden**:
 
-1. **Mayor poder final `F(S)`** (lo más cerca posible del objetivo sin pasarse).
+1. **Mayor poder bruto `P(S)`**, sin importar dónde quede `F(S)` dentro de la
+   ventana.
+2. A igualdad de `P(S)`, **mayor poder final `F(S)`**.
+3. A igualdad de `F(S)`, **menos mineros** (`Σ count`).
+4. A igualdad de mineros, **menos merges** (solo con merges activados, §5.9).
+
+**Respaldo — si ninguna llega al piso** (el inventario no da), entre todas las
+combinaciones con `F(S) ≤ tope`:
+
+1. **Mayor poder final `F(S)`** (lo más cerca posible del tope).
 2. A igualdad de `F(S)`, **menor bonus total `B(S)`**.
 3. A igualdad de `B(S)`, **mayor poder bruto `P(S)`**.
-4. A igualdad de `P(S)`, **menos merges** (solo con merges activados, §5.9).
+4. A igualdad de `P(S)`, **menos mineros**.
+5. A igualdad de mineros, **menos merges** (solo con merges activados).
 
-> Racional: primero acercarse al objetivo; después, gastar el menor bonus posible
-> (los mineros de bonus alto quedan libres para otras salas/juegos); y como
-> desempate, quedarse con más poder bruto. Un merge no se puede deshacer, así
-> que el criterio 4 evita mergear copias que no cambian la sala (p. ej. copias
-> que al final no se colocan).
+Cualquier combinación dentro de la ventana es mejor que cualquiera fuera.
+
+> Racional: la liga la decide `F`, pero lo que rinde el bonus extra de la otra
+> vista es el bruto; bajar un poco `F` sin salir de la ventana a cambio de más
+> bruto conviene. El respaldo es el criterio anterior: acercarse al tope y
+> gastar el menor bonus posible. Menos mineros libera celdas y son menos
+> mineros que mantener. Un merge no se puede deshacer, así que el último
+> criterio evita mergear copias que no cambian la sala.
+>
+> Sin margen (`margin_bp` ausente en la API) se usa directamente el respaldo:
+> es el comportamiento histórico, que conservan los tests.
 
 ### 5.4 Límite (Salas → celdas)
 
@@ -111,53 +143,85 @@ Entre todas las combinaciones válidas se elige, **en este orden**:
   celdas **no** afecta el rendimiento del solver (mismos tiempos que contar
   mineros).
 - Es un **máximo**, no hay que llenarlo.
-- **Poder objetivo (UI)**: input numérico + selector **PH/s, EH/s, ZH/s**.
-  `time_limit_s` fijo en **60 s** (no expuesto; el backend lo parte en 2 pasadas
-  de 30 s). Mientras corre, el botón muestra `optimizando sala… Ns / máx 60s`.
-  No se muestra la conversión de unidades debajo del input.
+- **Liga objetivo (UI)**: selector con **"Personalizado" como primera opción**
+  y después las ligas de §6.3. "Personalizado" muestra el input numérico +
+  selector **PH/s, EH/s, ZH/s** de antes. Se persisten liga, modo y margen. Si
+  no hay liga elegida, se preselecciona la que contiene el poder personalizado
+  guardado. No se muestra la conversión de unidades debajo del input.
+- Debajo, el rango de búsqueda: **"La búsqueda será entre 49.500 y 49.999
+  EH/s"** (piso y tope). El tope se muestra **truncado** a 3 decimales, no
+  redondeado: el de Platinum I (`50 EH/s − 1 GH/s`) redondeado se vería como
+  50.000, que ya es la liga siguiente. Si las dos cifras tienen la misma unidad,
+  se muestra una sola vez al final. Sin tope: "Sin tope: se busca el mayor
+  poder bruto."
+- **Margen (UI)**: input numérico en %, default **1**, rango 0–100 (§5.2).
+- `time_limit_s` fijo en **300 s** (5 min, no expuesto). Ver §5.10.
 
-### 5.5 "En sala" vs "Mi inventario" (solo UI, no afecta al optimizador)
+### 5.5 "Mi inventario" y "Sala" (independientes, como en el juego)
 
-- Cada modelo del inventario tiene, además de `quantity` (cuántas copias tengo),
-  un campo `inRoom` (cuántas de esas copias tengo **puestas en la sala ahora
-  mismo**), `0 ≤ inRoom ≤ quantity`. Persistido en `localStorage`.
-- Panel **"En sala"**: filas con `inRoom > 0`; muestra poder/bonus/final de lo
-  colocado y **celdas usadas / capacidad** (`roomsToCells(salas)`), en rojo si se
-  pasa.
-- Panel **"Mi inventario"**: filas con `quantity − inRoom > 0` (copias
-  disponibles fuera de la sala). Un modelo con todas sus copias en la sala
-  desaparece de aquí; se saca desde "En sala" bajando su contador.
+"Mi inventario" y la sala son **dos listas separadas**, igual que en RollerCoin
+(lo puesto en la sala no aparece en el inventario del juego):
+
+- `quantity` = copias en **Mi inventario** (el banco). **Solo cambia** al pegar
+  el inventario (§5.8), con la **X** de la fila, con **"vaciar"** o agregando
+  (catálogo, arrastrar un minero del catálogo sobre el panel). Nada de la sala
+  ni del optimizador lo toca.
+- `inRoom` = copias en la **Sala**. Independiente de `quantity` (puede ser
+  mayor, menor o sin inventario).
+- `simUsed` (interno, no se muestra) = copias **de Mi inventario que la
+  simulación ya usó**: puestas en la sala desde el inventario o consumidas por
+  un merge al "usar como sala". `0 ≤ simUsed ≤ quantity`. Existe para no
+  contarlas dos veces: la app **simula** los movimientos; cuando se hacen en el
+  juego, se vuelve a pegar el inventario y a sincronizar la sala.
+- Copias que tengo para optimizar: `(quantity − simUsed) + inRoom + planned`.
+- Persistido en `localStorage`. Migración de datos viejos (donde `quantity`
+  incluía lo puesto): `quantity ← quantity − inRoom`, `simUsed = 0`.
+- Panel **"Mi inventario"**: filas con `quantity > 0`; columnas Minero, Poder,
+  Bonus y **Tengo** (`quantity`). **Sin** columna "Sala".
+- **X** de una fila: con 1 copia la elimina; con más, **pregunta cuántas
+  eliminar en la misma fila** (no con un diálogo del navegador): campo numérico
+  1…N (default 1) + "eliminar" / "cancelar"; Enter confirma, Escape cancela. Baja `quantity` (y acota `simUsed`); si el modelo queda sin
+  inventario, sin sala y sin planeado, desaparece.
+- Panel **"En sala"**: muestra poder/bonus/final de lo colocado y **celdas
+  usadas / capacidad** (`roomsToCells(salas)`), en rojo si se pasa.
 - Las cabeceras de las tablas quedan fijas (`position: sticky`) al hacer scroll.
-- Sacar un minero de la sala tiene **dos resultados** según cómo se haga:
-  - **Devolver al banco** (`unplaceFromRoom()`, solo baja `inRoom`): al
-    arrastrarlo desde la sala y soltarlo sobre el panel **"Mi inventario"**.
-  - **Eliminarlo** (`removeFromRoom()`, baja `inRoom` **y** `quantity`; **no**
-    vuelve al banco): con el botón **"Quitar de la sala"** de la card de detalle,
-    o soltándolo en la zona **"Suelta aquí"**. Un modelo que queda en
-    `quantity 0` sin `planned` desaparece del inventario.
+- **Poner en la sala** desde Mi inventario (arrastrar o clic): solo si quedan
+  copias sin usar (`quantity − simUsed > 0`); `inRoom += 1`, `simUsed += 1`. El
+  inventario **no** cambia.
+- **Poner en la sala desde el catálogo** (arrastrar a una celda): `inRoom += 1`
+  sin tocar el inventario.
+- **Sacar de la sala** (`removeFromRoom()`: botón **"Quitar de la sala"** de la
+  card de detalle, zona **"Suelta aquí"**, o soltarlo sobre "Mi inventario"):
+  `inRoom −= 1`. Si había copias del inventario usadas (`simUsed > 0`), esa copia
+  deja de estar usada (`simUsed −= 1`); si no, la copia se elimina. **Nunca pasa
+  a "Mi inventario"**. Un modelo sin inventario, sin sala y sin planeado
+  desaparece.
 - Arrastrar un minero de la sala **sobre otro minero de la sala** los
   **intercambia** de lugar (`reorderRoomSlot`). Si los dos ocupan 1 celda se
   cambian esas celdas; si alguno ocupa 2, se cambian los estantes completos (un
   minero de 1 celda que compartía estante con el arrastrado viaja con él).
   Soltarlo en una celda libre lo mueve ahí, como antes.
 - Botón **"vaciar la sala"** (icono de escoba, junto al de sincronizar en "Mi
-  sala"): `clearRoom()` — elimina toda la sala de una: `inRoom = 0`, baja
-  `quantity` en esas copias, `roomSlots` queda vacío. Sin confirmación.
+  sala"): `clearRoom()` — vacía la sala de una: `inRoom = 0`, `simUsed = 0`,
+  `roomSlots` vacío. No toca el inventario. Sin confirmación.
+- **Sincronizar la sala real** ("recargar sala", §6): `inRoom` = lo que dice el
+  juego, `simUsed = 0` (la sala ya es la real). No toca el inventario.
 - **Exportar / importar** (botones arriba del todo, junto al título): guardan y
   restauran **todo** el estado en un JSON `{ version, rooms, inventory: [...] }`
-  — cada ítem lleva `quantity`, `inRoom` y `planned`, así que cubre sala,
-  inventario y nueva adquisición. Importar **reemplaza** el estado actual (pide
-  confirmación). Se acepta también el formato viejo (array plano = solo
-  inventario).
+  — cada ítem lleva `quantity`, `inRoom`, `simUsed` y `planned`, así que cubre
+  sala, inventario y nueva adquisición. `version: 2`; al importar una `version`
+  1 (o sin versión) se aplica la misma migración que a `localStorage`.
+  Importar **reemplaza** el estado actual (pide confirmación). Se acepta
+  también el formato viejo (array plano = solo inventario).
 
 ### 5.6 "Nueva adquisición" (mineros que planeo obtener)
 
 - Campo `planned` por modelo: copias que **planeo adquirir** pero aún no tengo.
   Un modelo puede ser solo planeado (`quantity: 0, planned: n`) — no aparece en
-  "Mi inventario" ni en "En sala", solo en el panel **"Nueva adquisición"**.
+  "Mi inventario", solo en el panel **"Nueva adquisición"**.
   Se añade desde el catálogo con el botón **"nuevo"**.
 - **Al optimizar**, el inventario que se envía usa copias efectivas
-  `quantity + planned` (`selectOptimizeList`). O sea, el optimizador razona como
+  `(quantity − simUsed) + inRoom + planned` (`selectOptimizeList`, §5.5). O sea, el optimizador razona como
   si ya tuvieras lo planeado.
 
 ### 5.7 Resultado: diff contra la sala actual
@@ -171,33 +235,59 @@ Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
   (N = `count − inRoom`).
 - Un pick que **ya estaba** en la sala pero cuyo `count` baja respecto a
   `inRoom` lleva tag rojo **"−N sale(n)"** (N = `inRoom − count`).
-- Un pick cuyo `count` supera las copias que tengo (`quantity`) lleva tag ámbar
-  **"comprar N"** (N = `count − quantity`, sale de lo planeado).
+- No hay tag de "comprar": las copias planeadas que usa el resultado ya se ven
+  en "Nuevo" / "+N nuevos".
 - Abajo, sección **"Sale de la sala"**: modelos con `inRoom > 0` cuyo `count`
-  en los picks es menor a `inRoom` (0 si no están). Si salen todas las copias →
-  tag rojo **"Quitar de sala"**; si salen solo algunas → tag rojo **"−N"**
-  (N = `inRoom − count`).
-- **"Ya optimizada".** El resultado se compara con la sala actual en cascada,
-  en este orden; el **primer criterio que difiere decide** (si mejora se ofrece,
-  si empeora no), y si todos son iguales no se ofrece:
-  1. poder final **redondeado a como se muestra** (unidad + 3 decimales):
-     mayor es mejor;
-  2. bonus usado: **menor** es mejor;
-  3. poder bruto de mineros (GH/s exactos): **mayor** es mejor;
-  4. cantidad de mineros (`Σ count` vs `Σ inRoom`): **menor** es mejor — libera
+  en los picks es menor a `inRoom` (0 si no están). De las
+  `sale = inRoom − count` copias que salen, las que consume un merge del
+  resultado (`min(sale, copias consumidas)`) llevan el tag de merge **"Usar N en
+  el merge"**; el resto, tag rojo **"Quitar N de sala"**. Si hay de los dos, se
+  muestran ambos. Al lado se ve cuántas hay puestas ("N en sala").
+- **"Ya optimizada".** El resultado se compara con la sala actual. Primero, por
+  **dónde cae cada una** respecto a la ventana de §5.2 (con el tope y piso del
+  resultado):
+  - la sala actual **pasa el tope** → el resultado siempre mejora;
+  - una entra en la ventana y la otra no → gana la que entra;
+  - si las dos están en el mismo caso, se sigue en cascada; el **primer
+    criterio que difiere decide** (si mejora se ofrece, si empeora no), y si
+    todos son iguales no se ofrece.
+
+  **Las dos en la ventana:**
+  1. poder bruto **redondeado a como se muestra**: mayor es mejor;
+  2. poder final **redondeado a como se muestra**: mayor es mejor;
+  3. cantidad de mineros (`Σ count` vs `Σ inRoom`): **menor** es mejor — libera
      celdas y son menos mineros que mantener;
-  5. merges: **menos** es mejor (la sala actual tiene 0), o sea, a igualdad de
+  4. merges: **menos** es mejor (la sala actual tiene 0), o sea, a igualdad de
      todo lo anterior un resultado con merges no se ofrece.
 
-  Una diferencia de poder final que igual se ve como el mismo número (p. ej. las
-  dos salas en `49.999 EH/s`) no cuenta en el criterio 1: comparar el valor
-  exacto en GH/s haría proponer cambios por mejoras de ~`1e-4` invisibles.
+  **Las dos bajo el piso (respaldo):**
+  1. poder final **redondeado a como se muestra**: mayor es mejor;
+  2. bonus usado: **menor** es mejor;
+  3. poder bruto de mineros (GH/s exactos): **mayor** es mejor;
+  4. cantidad de mineros: **menor** es mejor;
+  5. merges: **menos** es mejor.
+
+  Una diferencia de poder que igual se ve como el mismo número (p. ej. las dos
+  salas en `49.999 EH/s`) no cuenta: comparar el valor exacto en GH/s haría
+  proponer cambios por mejoras de ~`1e-4` invisibles. "Como se muestra" es en
+  la **unidad de la liga** (§5.9), la misma de la tabla comparativa.
 - Tabla de comparación (Actual / Optimizada, con delta): filas **"Poder
   final"**, **"Poder mineros"** y **"Bonus"** siempre; fila **"Mineros"** solo
-  si la cantidad cambia.
-- Botón **"usar como sala"**: `applyRoom(counts)` — fija `inRoom = count` de cada
-  pick (0 para el resto) y, si `count > quantity`, sube `quantity` absorbiendo de
-  `planned`. Si la sala ya coincide con el resultado, en vez del botón se muestra
+  si la cantidad cambia. Los poderes y sus deltas van en la **unidad de la
+  liga** (§5.9), con 3 decimales.
+- Botón **"usar como sala"**: `applyRoom(counts, merges)` — fija `inRoom =
+  count` de cada pick (0 para el resto). **No cambia "Mi inventario"**
+  (`quantity`): solo lleva la cuenta en `simUsed` (§5.5). Por modelo:
+  1. De las copias que **salen de la sala**, las que consume un merge van al
+     merge; del resto, primero se liberan las que venían del inventario
+     (`simUsed −=`) y las demás se eliminan. Ninguna pasa a "Mi inventario".
+  2. Lo que el merge consume y no salió de la sala se toma del inventario sin
+     usar (`simUsed +=`) y, si falta, de lo planeado (`planned −=`).
+  3. Las copias que **entran a la sala** salen, en orden, de lo que producen los
+     merges, del inventario sin usar (`simUsed +=`) y de lo planeado
+     (`planned −=`).
+
+  Si la sala ya coincide con el resultado, en vez del botón se muestra
   **"✓ es tu sala actual"**.
 - La tabla del resultado permite **seleccionar 1 fila** (clic) solo para
   resaltarla; no tiene ningún efecto.
@@ -218,8 +308,9 @@ Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
   "sin catálogo" con `id = "paste:<slug>:<lvl>"`.
 - El frontend muestra una previsualización y dos acciones:
   **"reemplazar inventario"** (los modelos ausentes en el texto quedan en 0) o
-  **"sumar a lo que tengo"** (`quantity += pegado`). Ambas conservan `planned` y
-  el nº de salas; `inRoom` se re-acota a la nueva `quantity`.
+  **"sumar a lo que tengo"** (`quantity += pegado`). Solo tocan "Mi
+  inventario": la sala (`inRoom`), `planned` y el nº de salas no cambian;
+  `simUsed` se acota a la nueva `quantity`.
 
 ### 5.9 Merges
 
@@ -250,20 +341,65 @@ Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
 - Resultado: caja **"Merges a hacer"** (antes de la tabla de la sala, con
   fondo propio). **Una fila por minero** (la cadena completa de merges): sprite
   del nivel final, nombre, tag **"N merge"** (total de merges de la cadena),
-  ganancia de poder bruto de la cadena y botón "descartar". Los pasos
-  intermedios no se muestran: esos niveles no quedan en la sala. Orden:
-  **ganancia de mayor a menor**.
+  aporte (ver abajo) y botón "descartar". Los pasos intermedios no se
+  muestran: esos niveles no quedan en la sala.
 
-  Ganancia de la cadena: `Σ count · (poder destino − 2 · poder origen)` sobre
-  sus pasos = poder de las copias finales − poder de las copias base
-  consumidas. No es el cambio de la sala: si las copias base no estaban
-  puestas, la sala gana más. Los
-  picks que salen de un merge llevan tag **"merge"**; "comprar N" descuenta
-  las copias producidas y consumidas.
-- **"usar como sala"** aplica primero los merges al inventario (baja
-  `quantity` del origen en `2·count`, absorbiendo de `planned` si falta; sube o
-  crea el destino) y después fija los `inRoom` como siempre. Se puede deshacer
-  con el toast de deshacer.
+  **"¿cuánto aportan?"** (un solo botón en el encabezado de la caja, bajo
+  demanda): calcula el aporte de **todos** los merges, **uno tras otro** (el
+  servidor corre un trabajo a la vez). Mientras tanto, cada fila muestra "en
+  espera", "calculando…" o su valor, y el botón muestra el avance (`2/4`). Una
+  fila con error tiene su propio "reintentar". Para cada merge lanza un
+  trabajo de optimización (§5.10) con el **mismo pedido** del resultado, más el
+  paso final de esa cadena en `excluded_merges` (lo mismo que quita
+  "descartar") y `primary_only: true` (solo la pasada principal, §7.3), con
+  `time_limit_s = 60`. La fila muestra:
+
+  ```
+  aporte = P(resultado) − P(óptimo sin ese merge)
+  ```
+
+  = cuánto **poder bruto de mineros pierde la sala optimizada si no se hace
+  ese merge**. Ya descuenta que las copias consumidas quizá estaban puestas y
+  que la copia nueva desplaza a otro minero, así que es la respuesta a "¿me
+  conviene?". El tooltip agrega el cambio de poder final. Si la
+  re-optimización no se demostró óptima, se muestra con "≈". El valor se
+  muestra **siempre en la unidad de la liga**: la unidad del `minPower` de la
+  liga elegida, como mínimo PH (Bronze y Silver → PH, Gold I → PH, desde Gold
+  II → EH, desde Titan I → ZH); con "Personalizado", la unidad elegida en el
+  selector del tope (PH, EH o ZH). Con 3 decimales, así que un aporte chico puede
+  verse como `+0.000 EH/s`. Mientras calcula,
+  la fila muestra "calculando…"; como es un trabajo más, si hay otro corriendo
+  devuelve el 429 de siempre y se muestra el error en la fila. Los aportes de
+  varios merges **no se suman** (interactúan entre sí). No se muestra ningún
+  otro cálculo de ganancia de merges.
+
+  Los picks que salen de un merge llevan tag **"merge"**.
+- **"usar como sala"** simula los merges sin tocar "Mi inventario" (§5.7): las
+  copias consumidas salen de la sala, del inventario sin usar (`simUsed`) o de
+  lo planeado, y las producidas entran directo a la sala. Se puede deshacer con
+  el toast de deshacer.
+
+### 5.10 Progreso y detener
+
+La optimización corre como un **trabajo en segundo plano** en el backend (§8):
+el frontend lo inicia, consulta su estado cada ~1 s y lo puede detener.
+
+- **Tope duro de 5 min** (`time_limit_s = 300`) para todo el trabajo.
+- Mientras corre, el panel muestra: la pasada en curso ("poder bruto", "poder
+  final", "menos mineros" o "respaldo"), el tiempo `Ns / máx 5:00`, el **mejor valor
+  encontrado** y la **cota** del solver (lo máximo que en teoría se puede
+  lograr) con el % que falta para demostrar el óptimo.
+- Botón **"Detener"**: corta la búsqueda y se queda con la mejor solución
+  encontrada. Si se detiene durante la primera pasada,
+  las siguientes (desempate
+  y merges) igual corren con un límite corto (`_POLISH_S = 3 s` cada una). El
+  resultado sale como `feasible` salvo que ya estuviera demostrado (§7.3).
+- Sin detener, el trabajo termina cuando la pasada 1 se demuestra óptima (o a
+  los 5 min) más, como mucho, 10 s por cada desempate (§7.3).
+- **Heartbeat**: si nadie consulta el estado del trabajo en `15 s` (se cerró la
+  pestaña), se detiene solo, igual que con el botón.
+- Solo corre **1 trabajo a la vez** en todo el servidor (§8); mientras tanto,
+  iniciar otro devuelve 429.
 
 ---
 
@@ -374,6 +510,18 @@ Observaciones verificadas (2026-09-03):
 - Mitigación: el frontend permite agregar **mineros personalizados** a mano
   (nombre, poder, bonus, width).
 
+### 6.3 Ligas
+
+- Endpoint: `GET https://api.rollercoincalculator.app/api/League` → lista de
+  ligas con `{ id, title, level, minPower, imageUrl, currencies, ... }`.
+  `minPower` está en **GH/s** (Platinum II = `50000000000` = 50 EH/s). Se usan
+  solo `level`, `title`, `minPower` e `imageUrl`.
+- `tope(L) = minPower(L+1) − 1` (con `50 EH/s` exactos ya se sube de liga). La
+  última (Legend) no tiene tope.
+- Snapshot versionado en `backend/app/data/leagues_seed.json` (22 ligas, Bronze
+  I … Legend). El backend refresca desde la API como mucho **1 vez cada 24 h**
+  (en memoria); si falla (429 incluido) sigue con lo último que tenía.
+
 ---
 
 ## 7. Modelo matemático (implementación)
@@ -409,45 +557,85 @@ z[m] ≤ M · y[m]
 z[m] ≥ P_s − M · (1 − y[m])
 
 F = 10000 · P_s + Σ_m bonus_bp[m] · z[m]   (= P_s · (10000 + B))
-F ≤ 10000 · objetivo_s
+F ≤ 10000 · tope_s
+F ≥ 10000 · piso_s                          (solo en modo ventana, §7.3)
 ```
 
-### 7.3 Objetivo (2 pasadas + 1 con merges)
+`piso_s = ⌈piso / S⌉`. Como `power_s` se redondea hacia arriba, el `F` real puede
+quedar hasta `~1e-10` relativo bajo el piso: despreciable, y el piso es una
+preferencia (§5.2).
+
+Sin tope (Legend), el tope efectivo es la cota `F` de usar **todas** las copias
+alcanzables (`final_power(Σ power·disp, Σ bonus)`), para no inflar la escala.
+
+### 7.3 Objetivo (pasadas)
+
+**Modo ventana** (con `margin_bp`), con la restricción `F ≥ 10000 · piso_s`:
+
+1. `maximize P_s` → `P*_s`. Si es **infactible** (nada llega al piso) o no
+   encuentra ninguna solución, se descarta la restricción del piso y se pasa al
+   modo respaldo.
+2. añadir `P_s ≥ P*_s`; `maximize F` → `F*`.
+3. añadir `F ≥ F*`; pasada de **mineros y merges** (abajo).
+
+**Modo respaldo** (sin `margin_bp`, o si el piso no se alcanza):
 
 1. `maximize F`  → `F*`
 2. añadir `F ≥ F*`; `minimize (B · W − P_s)` con `W = poder_disponible_s + 1`
    (así 1 bp de bonus pesa más que todo el poder bruto → primero menor bonus,
    después mayor poder bruto, en una sola pasada).
-3. Solo si la pasada 2 usó merges: fijar `B = B*`, `P_s ≥ P*_s` y
-   `minimize Σ k[m]` (criterio 4 de §5.3). Es una pasada aparte y no un peso más
-   en la 2 porque multiplicar `B · W` otra vez puede desbordar `int64`. Usa el
-   tiempo que sobre del total (mínimo 1 s) y arranca con la solución de la
-   pasada 2 como *hint*; si no termina, queda la de la pasada 2.
+3. fijar `B = B*`, `P_s ≥ P*_s`; pasada de **mineros y merges** (abajo). Es
+   una pasada aparte y no un peso más en la 2 porque multiplicar `B · W` otra
+   vez puede desbordar `int64`.
+
+Con `primary_only` (para "¿cuánto aporta?", §5.9) se corre únicamente la
+pasada 1 del modo que corresponda.
+
+**Pasada de mineros y merges** (la 3 de los dos modos, siempre corre):
+`minimize Σ use[m] · (K + 1) + Σ k[m]` con `K = Σ ⌊disp[m] / 2⌋` (la cota de
+merges), así un minero menos pesa más que cualquier diferencia de merges: primero
+menos mineros y después menos merges, en una sola pasada. Sin merges activados
+`Σ k` no existe y queda `minimize Σ use[m]`. Los números son chicos (cantidades),
+no hay riesgo de desbordar.
+
+**Tiempo:** hay un solo plazo para todo el trabajo (`time_limit_s`). La pasada 1
+usa lo que quede; las de desempate (2 y 3) usan lo que quede con un mínimo de
+`_POLISH_S` (3 s) y un **máximo de `_TIEBREAK_S` (10 s)**. Arrancan con la
+solución anterior como *hint* y suelen encontrar su mejor valor al instante, pero
+con muchos empates exactos de poder bruto (poderes redondos: 1e7, 5e6…)
+*demostrarlo* puede no terminar nunca (medido con un inventario real de 155
+modelos: el valor aparece en 0.1 s y la demostración no termina en 90 s). Si no
+terminan, queda su mejor valor o el de la pasada anterior. Detener (§5.10) corta la pasada en curso con
+`solver.stop_search()` y las que siguen corren con `_POLISH_S`.
 
 Antes de las pasadas:
 
 - **Atajo:** si todas las copias del inventario caben en la sala y ni así se
-  supera el objetivo → se usa todo el inventario (óptimo trivial). No aplica si
-  hay algún merge posible: mergear sube poder y bonus, así que todavía puede
-  haber una sala mejor.
+  supera el tope → se usa todo el inventario (óptimo trivial en los dos modos:
+  es el mayor `P` y el mayor `F` posibles; de un modelo sin poder, solo bonus,
+  va 1 copia porque las demás no suman). No aplica si hay algún merge
+  posible: mergear sube poder y bonus, así que todavía puede haber una sala
+  mejor.
 - **Heurística voraz:** llena con los mineros de mayor poder sin pasar del
-  objetivo. Se usa como *hint* del solver y como *fallback* si el solver no
-  encuentra nada. El resultado final nunca es peor que esta heurística.
+  tope. Se usa como *hint* del solver y como *fallback* si el solver no
+  encuentra nada. El resultado final nunca es peor que esta heurística (según
+  el orden de §5.3, ventana incluida).
 
 Después: recálculo con enteros exactos de Python (sin escala), red de seguridad
-`_trim_overshoot`, y verificación `F ≤ objetivo`.
+`_trim_overshoot`, y verificación `F ≤ tope`. El resultado informa `in_window`
+(si `piso ≤ F ≤ tope` con los valores exactos).
 
-`relative_gap_limit = 1e-6` **solo en la pasada 1**: corta la demostración
-cuando `F` está a menos de `1e-6` relativo del óptimo (con 50 EH/s son
-0.00005 EH/s, bajo lo que se muestra). Las pasadas 2 y 3 corren con gap `0`
-(hasta el óptimo o el límite de tiempo): el objetivo de la 2 está dominado por
-`B · W`, y un gap relativo ahí dejaba el poder bruto hasta ~`gap · B` veces `W`
-por debajo del óptimo (≈3% con 300% de bonus) → cada nueva optimización
-"mejoraba" el poder bruto de la anterior. `status`:
+`relative_gap_limit = 1e-6` en las pasadas que maximizan `P` o `F` (con 50 EH/s
+son 0.00005 EH/s, bajo lo que se muestra). La pasada 2 del respaldo y las de
+merges corren con gap `0` (hasta el óptimo o el límite de tiempo): el objetivo
+de la 2 está dominado por `B · W`, y un gap relativo ahí dejaba el poder bruto
+hasta ~`gap · B` veces `W` por debajo del óptimo (≈3% con 300% de bonus) → cada
+nueva optimización "mejoraba" el poder bruto de la anterior. `status`:
 
 | status | significado |
 |---|---|
-| `optimal` | óptimo demostrado (`F` dentro de `1e-6`) |
+| `optimal` | óptimo demostrado (dentro de `1e-6`) en todas las pasadas |
+| `optimal_primary` | la pasada 1 (criterio principal: mayor bruto en la ventana, o mayor `F` en el respaldo) está demostrada; algún desempate no terminó de demostrarse. UI: "óptimo demostrado · desempate sin demostrar" (verde) |
 | `feasible` | solución válida pero el solver no llegó a *demostrar* que es la óptima dentro del límite de tiempo. UI: "válida · óptimo no demostrado" |
 | `infeasible` / `unknown` | no debería ocurrir (la selección vacía siempre es válida) |
 
@@ -473,9 +661,13 @@ despreciable (`~ 1e-10` relativo).
 ### 7.5 Rendimiento
 
 - Inventarios reales: ~20–60 modelos distintos → resuelve en < 1 s por pasada.
-- Límite de tiempo por pasada configurable (default 10 s).
+- Límite de tiempo total configurable (default 10 s en la API; la UI manda 300).
 - Si el inventario tuviera cientos de modelos distintos, puede degradar; se
   puede subir el time limit o pre-filtrar.
+- **Workers:** `num_workers` sale de la variable de entorno `OPT_WORKERS`
+  (default 8). En un host con fracción de CPU (Render free/starter) conviene
+  `OPT_WORKERS=1` o `2`: 8 workers compitiendo por menos de un núcleo rinden
+  mucho peor.
 
 ---
 
@@ -491,14 +683,20 @@ despreciable (`~ 1e-10` relativo).
 - `POST /api/inventory/parse` — body `{ "text": "<pegado de RollerCoin>" }` →
   `{ items: [{id,name,level,power,bonus_bp,width,quantity,image,matched}],
   skipped: [] }`. Ver §5.8.
-- `POST /api/optimize` — body:
+- `GET  /api/leagues` — ligas (§6.3):
+  `[{ level, title, min_power, max_power, image }]`; `min_power`/`max_power`
+  como string (GH/s), `max_power` = tope (`null` en la última).
+- `POST /api/optimize` — **inicia** un trabajo (§5.10) y responde al toque
+  `{ "job_id": "..." }`. 429 si ya hay uno corriendo. Body:
 
 ```jsonc
 {
-  "target_final_power": "5000000000000",   // string (puede exceder 2^53)
+  "target_final_power": "5000000000000",   // string (puede exceder 2^53); null = sin tope
+  "margin_bp": 100,                         // §5.2 (opcional; ausente = solo respaldo)
+  "primary_only": false,                    // §5.9 "¿cuánto aporta?" (opcional)
   "max_slots": 48,                          // 48 | 72 | otro
   "slot_mode": "miners",                    // "miners" | "cells"
-  "time_limit_s": 10,
+  "time_limit_s": 300,                      // (0, 300]
   "allow_merges": false,                    // §5.9 (opcional, default false)
   "excluded_merges": [],                    // §5.9: ids de origen descartados
   "inventory": [
@@ -508,11 +706,30 @@ despreciable (`~ 1e-10` relativo).
 }
 ```
 
-Respuesta:
+- `GET  /api/optimize/{job_id}` — estado del trabajo (cuenta como heartbeat):
 
 ```jsonc
 {
-  "status": "optimal" | "feasible" | "infeasible",
+  "state": "running" | "done" | "error",
+  "elapsed_s": 12.3,
+  "time_limit_s": 300,
+  "phase": "raw" | "final" | "tiebreak" | "miners" | "fallback" | "",
+  "best": "4999000000",     // mejor valor de la pasada en curso (GH/s; "" si no hay)
+  "bound": "5010000000",    // cota del solver (GH/s; "" si no hay)
+  "stopping": false,
+  "result": { ... },        // solo con state = "done" (ver abajo)
+  "error": ""               // solo con state = "error"
+}
+```
+
+  404 si el trabajo no existe (expiró: se guardan 10 min después de terminar).
+- `POST /api/optimize/{job_id}/stop` — detiene la búsqueda (§5.10). Idempotente.
+
+Resultado (`result`):
+
+```jsonc
+{
+  "status": "optimal" | "optimal_primary" | "feasible" | "infeasible",   // §7.3
   "picks": [ { "id": "...", "name": "...", "level": 1, "count": 5,
                "power": "105", "bonus_bp": 14, "width": 1,
                "image": "" } ],          // image: del catálogo ("" si no hay)
@@ -523,9 +740,11 @@ Respuesta:
   "raw_power": "525",
   "bonus_bp": 14,
   "final_power": "525",
-  "target_final_power": "5000000000000",
-  "headroom": "4999999999475",       // objetivo - final_power
-  "headroom_pct": 99.99,
+  "target_final_power": "5000000000000", // tope (null si no hay)
+  "floor_power": "4950000000000",        // piso (§5.2; "0" sin margen o sin tope)
+  "in_window": false,                    // piso ≤ final_power ≤ tope (siempre false sin margen)
+  "headroom": "4999999999475",       // tope - final_power (null sin tope)
+  "headroom_pct": 99.99,             // final / tope · 100 (0 sin tope)
   "slots_used": 5,
   "cells_used": 5,
   "scale": 1

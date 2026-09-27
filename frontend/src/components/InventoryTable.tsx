@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { DragEvent } from "react";
 import {
   useStore,
@@ -16,6 +16,50 @@ import { useDragState } from "../dragState";
 import { useUndo } from "../undoState";
 import type { CatalogMiner } from "../types";
 
+/** Fila bajo el minero para elegir cuántas copias eliminar (RULES.md §5.5). */
+function RemovePrompt({
+  name,
+  have,
+  onConfirm,
+  onCancel,
+}: {
+  name: string;
+  have: number;
+  onConfirm: (n: number) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState("1");
+  const n = Math.floor(Number(value));
+  const valid = Number.isFinite(n) && n >= 1 && n <= have;
+  const confirm = () => valid && onConfirm(n);
+  return (
+    <div className="row" style={{ gap: 6, justifyContent: "flex-end", fontSize: 12 }}>
+      <span>¿Cuántas copias de {name || "este minero"} quieres eliminar?</span>
+      <input
+        type="number"
+        min={1}
+        max={have}
+        value={value}
+        autoFocus
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") confirm();
+          if (e.key === "Escape") onCancel();
+        }}
+        style={{ width: 56 }}
+        aria-label={`Cantidad a eliminar (1 a ${have})`}
+      />
+      <span className="muted">de {have}</span>
+      <button className="tiny" disabled={!valid} onClick={confirm}>
+        eliminar
+      </button>
+      <button className="tiny" onClick={onCancel}>
+        cancelar
+      </button>
+    </div>
+  );
+}
+
 export default function InventoryTable() {
   const fullList = useStore(selectInventoryList);
   const benchRaw = useStore(selectBenchList);
@@ -23,13 +67,14 @@ export default function InventoryTable() {
   const setInvSort = useStore((s) => s.setInvSort);
   const addFromCatalog = useStore((s) => s.addFromCatalog);
   const placeInRoomAt = useStore((s) => s.placeInRoomAt);
-  const unplaceFromRoom = useStore((s) => s.unplaceFromRoom);
-  const setQuantity = useStore((s) => s.setQuantity);
+  const removeFromRoom = useStore((s) => s.removeFromRoom);
+  const removeFromInventory = useStore((s) => s.removeFromInventory);
   const clear = useStore((s) => s.clearInventory);
   const inventory = useStore((s) => s.inventory);
   const offerUndo = useUndo((s) => s.offer);
   const setDraggingWidth = useDragState((s) => s.setWidth);
   const [term, setTerm] = useState("");
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const sorted = sortInventory(benchRaw, invSort);
   const list = term.trim()
@@ -44,7 +89,8 @@ export default function InventoryTable() {
       const raw = e.dataTransfer.getData(ROOM_DND_MIME);
       if (!raw) return;
       const p = JSON.parse(raw) as { source: string; index?: number; miner?: CatalogMiner };
-      if (p.source === "room" && p.index != null) unplaceFromRoom(p.index);
+      // de la sala no pasa al inventario: solo sale de la sala (RULES.md §5.5)
+      if (p.source === "room" && p.index != null) removeFromRoom(p.index);
       else if (p.source === "catalog" && p.miner) addFromCatalog(p.miner, 1);
     } catch {
       // dato de drag no reconocido, ignorar
@@ -108,7 +154,7 @@ export default function InventoryTable() {
         </div>
       ) : list.length === 0 ? (
         <div className="muted" style={{ padding: "12px 0" }}>
-          {term.trim() ? "Ningún minero coincide con la búsqueda." : "Todos tus mineros están en la sala."}
+          Ningún minero coincide con la búsqueda.
         </div>
       ) : (
         <div className="scroll" style={{ flex: 1, minHeight: 0, maxHeight: "none" }}>
@@ -119,13 +165,13 @@ export default function InventoryTable() {
                 <th className="num">Poder</th>
                 <th className="num">Bonus</th>
                 <th className="num">Tengo</th>
-                <th className="num">Sala</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {list.map((it) => (
-                <tr key={it.id}>
+                <Fragment key={it.id}>
+                <tr>
                   <td>
                     <div
                       className="row"
@@ -152,7 +198,7 @@ export default function InventoryTable() {
                         title={`${it.width} celda${it.width > 1 ? "s" : ""}`}
                       />
                       <span className="name-row">
-                        {it.name || <span className="muted">custom</span>}
+                        {it.name || <span className="muted">Personalizado</span>}
                       </span>
                     </div>
                   </td>
@@ -161,17 +207,34 @@ export default function InventoryTable() {
                   </td>
                   <td className="num">+{bpToPct(it.bonus_bp)}</td>
                   <td className="num">{it.quantity}</td>
-                  <td className="num">{it.inRoom ?? 0}</td>
                   <td className="num">
                     <button
                       className="tiny"
-                      title="Quitar del inventario (las copias en la sala se quedan)"
-                      onClick={() => setQuantity(it.id, it.inRoom ?? 0)}
+                      title="Eliminar del inventario"
+                      onClick={() =>
+                        it.quantity <= 1 ? removeFromInventory(it.id, 1) : setRemovingId(it.id)
+                      }
                     >
                       ✕
                     </button>
                   </td>
                 </tr>
+                {removingId === it.id && (
+                  <tr>
+                    <td colSpan={5}>
+                      <RemovePrompt
+                        name={it.name}
+                        have={it.quantity}
+                        onConfirm={(n) => {
+                          removeFromInventory(it.id, n);
+                          setRemovingId(null);
+                        }}
+                        onCancel={() => setRemovingId(null)}
+                      />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

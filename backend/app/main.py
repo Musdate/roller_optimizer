@@ -5,8 +5,11 @@ Capa delgada sobre `optimizer.py` (lógica pura) y `catalog.py` (datos).
 
 from __future__ import annotations
 
+import logging
 import threading
-from dataclasses import replace
+import time
+import uuid
+from dataclasses import dataclass, field, replace
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -15,10 +18,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .catalog import RoomSyncError, catalog, fetch_user_room
+from .leagues import leagues
 from .models import (
     CatalogMinerOut,
+    LeagueOut,
     MergeOut,
     MergeTargetOut,
+    OptimizeJobStarted,
+    OptimizeJobStatus,
     OptimizeRequestBody,
     OptimizeResponse,
     ParsedItemOut,
@@ -28,7 +35,7 @@ from .models import (
     RoomImportItem,
     RoomImportResponse,
 )
-from .optimizer import MinerModel, OptimizeRequest, optimize
+from .optimizer import MinerModel, OptimizeRequest, OptimizeResult, optimize
 from .paste import parse_inventory
 
 @asynccontextmanager
@@ -43,15 +50,41 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Optimizador Sala RollerCoin", version="0.1.0", lifespan=lifespan)
 
-# El solver de OR-Tools puede tardar hasta `time_limit_s` (60s desde el
+# El solver de OR-Tools puede tardar hasta `time_limit_s` (5 min desde el
 # frontend) y suele usar varios núcleos por sí solo -- en un VPS chico, unas
 # pocas optimizaciones a la vez alcanzan para saturar la CPU y poner lenta
-# TODA la app (y de paso a lo que sea que comparta servidor). Con un solo
-# candado no-bloqueante, como el de `catalog._refresh_lock`, como mucho
-# corre 1 a la vez; el resto recibe un 429 al toque en vez de encolarse (una
-# cola dejaría requests colgadas esperando, gastando igual un hilo/conexión
-# cada una).
+# TODA la app. Con un solo candado no-bloqueante, como el de
+# `catalog._refresh_lock`, como mucho corre 1 trabajo a la vez; el resto
+# recibe un 429 al toque en vez de encolarse. El candado lo suelta el hilo
+# del trabajo al terminar.
 _optimize_lock = threading.Lock()
+logger = logging.getLogger(__name__)
+
+# Trabajos de optimización (RULES.md §5.10). Si nadie consulta el estado en
+# `_HEARTBEAT_S` (se cerró la pestaña), se detiene solo: si no, el candado
+# quedaría tomado hasta agotar los 5 min.
+_HEARTBEAT_S = 15.0
+_JOB_TTL_S = 600.0
+
+
+@dataclass
+class _Job:
+    id: str
+    time_limit_s: float
+    started: float = field(default_factory=time.monotonic)
+    last_seen: float = field(default_factory=time.monotonic)
+    finished: float | None = None
+    stop: threading.Event = field(default_factory=threading.Event)
+    state: str = "running"
+    phase: str = ""
+    best: int | None = None
+    bound: int | None = None
+    result: OptimizeResponse | None = None
+    error: str = ""
+
+
+_jobs: dict[str, _Job] = {}
+_jobs_lock = threading.Lock()
 
 app.add_middleware(
     CORSMiddleware,
@@ -74,7 +107,10 @@ def api_root() -> dict:
             "/api/catalog/check",
             "/api/room/import",
             "/api/inventory/parse",
+            "/api/leagues",
             "/api/optimize",
+            "/api/optimize/{job_id}",
+            "/api/optimize/{job_id}/stop",
         ],
     }
 
@@ -105,7 +141,10 @@ def get_catalog(
     try:
         rows = catalog.search(search, limit)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, f"no se pudo obtener el catálogo: {exc}") from exc
+        logger.exception("no se pudo obtener el catálogo")
+        raise HTTPException(
+            502, "No se pudo cargar el catálogo de mineros. Inténtalo de nuevo en unos minutos."
+        ) from exc
     return [
         CatalogMinerOut(
             id=r["id"],
@@ -171,7 +210,10 @@ def check_catalog() -> dict:
     try:
         return catalog.check_for_updates()
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(502, f"no se pudo chequear el catálogo: {exc}") from exc
+        logger.exception("no se pudo chequear el catálogo")
+        raise HTTPException(
+            502, "No se pudo consultar RollerCoin para buscar mineros nuevos. Inténtalo de nuevo en unos minutos."
+        ) from exc
 
 
 @app.get("/api/room/import", response_model=RoomImportResponse)
@@ -225,10 +267,26 @@ def parse_pasted_inventory(body: ParseInventoryBody) -> ParseInventoryResponse:
     )
 
 
-@app.post("/api/optimize", response_model=OptimizeResponse)
-def run_optimize(body: OptimizeRequestBody) -> OptimizeResponse:
+@app.get("/api/leagues", response_model=list[LeagueOut])
+def get_leagues() -> list[LeagueOut]:
+    return [
+        LeagueOut(
+            level=r["level"],
+            title=r["title"],
+            min_power=str(r["min_power"]),
+            max_power=None if r["max_power"] is None else str(r["max_power"]),
+            image=r["image"],
+        )
+        for r in leagues.all()
+    ]
+
+
+@app.post("/api/optimize", response_model=OptimizeJobStarted)
+def start_optimize(body: OptimizeRequestBody) -> OptimizeJobStarted:
     if not _optimize_lock.acquire(blocking=False):
-        raise HTTPException(429, "ya hay una optimización en curso — espera unos segundos y vuelve a intentar")
+        raise HTTPException(
+            429, "Ya hay una optimización en curso. Espera a que termine e inténtalo de nuevo."
+        )
     try:
         models = [
             MinerModel(
@@ -246,68 +304,151 @@ def run_optimize(body: OptimizeRequestBody) -> OptimizeResponse:
         row_by_id = {r["id"]: r for r in rows}
         if body.allow_merges:
             models = _with_merge_targets(models, rows, row_by_id)
-        by_id = {m.id: m for m in models}
         req = OptimizeRequest(
             target_final_power=body.target_final_power,
+            margin_bp=body.margin_bp,
+            primary_only=body.primary_only,
             max_slots=body.max_slots,
             slot_mode=body.slot_mode,
             time_limit_s=body.time_limit_s,
             allow_merges=body.allow_merges,
             excluded_merges=frozenset(body.excluded_merges),
         )
-        res = optimize(models, req)
-
-        def image(mid: str) -> str:
-            return row_by_id.get(mid, {}).get("image", "")
-
-        return OptimizeResponse(
-            status=res.status,
-            picks=[
-                PickOut(
-                    id=p.id,
-                    name=p.name,
-                    level=p.level,
-                    count=p.count,
-                    power=str(p.power),
-                    bonus_bp=p.bonus_bp,
-                    width=p.width,
-                    image=image(p.id),
-                )
-                for p in res.picks
-            ],
-            merges=[
-                MergeOut(
-                    from_id=mg.from_id,
-                    from_name=by_id[mg.from_id].name,
-                    from_level=by_id[mg.from_id].level,
-                    from_power=str(by_id[mg.from_id].power),
-                    count=mg.count,
-                    to=MergeTargetOut(
-                        id=mg.to_id,
-                        name=by_id[mg.to_id].name,
-                        level=by_id[mg.to_id].level,
-                        power=str(by_id[mg.to_id].power),
-                        bonus_bp=by_id[mg.to_id].bonus_bp,
-                        width=by_id[mg.to_id].width,
-                        image=image(mg.to_id),
-                    ),
-                )
-                for mg in res.merges
-            ],
-            raw_power=str(res.raw_power),
-            bonus_bp=res.bonus_bp,
-            bonus_pct=round(res.bonus_bp / 100, 2),
-            final_power=str(res.final_power),
-            target_final_power=str(res.target_final_power),
-            headroom=str(res.headroom),
-            headroom_pct=res.headroom_pct,
-            slots_used=res.slots_used,
-            cells_used=res.cells_used,
-            scale=res.scale,
-            solve_time_s=res.solve_time_s,
-        )
-    finally:
+        job = _Job(id=uuid.uuid4().hex, time_limit_s=body.time_limit_s)
+        with _jobs_lock:
+            _prune_jobs()
+            _jobs[job.id] = job
+        threading.Thread(
+            target=_run_job, args=(job, models, req, row_by_id), daemon=True
+        ).start()
+    except BaseException:
         _optimize_lock.release()
+        raise
+    return OptimizeJobStarted(job_id=job.id)
+
+
+@app.get("/api/optimize/{job_id}", response_model=OptimizeJobStatus)
+def optimize_status(job_id: str) -> OptimizeJobStatus:
+    job = _get_job(job_id)
+    job.last_seen = time.monotonic()
+    end = job.finished if job.finished is not None else time.monotonic()
+    return OptimizeJobStatus(
+        state=job.state,
+        elapsed_s=round(end - job.started, 1),
+        time_limit_s=job.time_limit_s,
+        phase=job.phase,
+        best="" if job.best is None else str(job.best),
+        bound="" if job.bound is None else str(job.bound),
+        stopping=job.stop.is_set(),
+        result=job.result,
+        error=job.error,
+    )
+
+
+@app.post("/api/optimize/{job_id}/stop", response_model=OptimizeJobStatus)
+def optimize_stop(job_id: str) -> OptimizeJobStatus:
+    _get_job(job_id).stop.set()
+    return optimize_status(job_id)
+
+
+def _get_job(job_id: str) -> _Job:
+    with _jobs_lock:
+        job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(404, "La optimización ya no está disponible. Vuelve a optimizar.")
+    return job
+
+
+def _prune_jobs() -> None:
+    now = time.monotonic()
+    for jid in [j.id for j in _jobs.values() if j.finished and now - j.finished > _JOB_TTL_S]:
+        del _jobs[jid]
+
+
+def _run_job(
+    job: _Job, models: list[MinerModel], req: OptimizeRequest, row_by_id: dict[str, dict]
+) -> None:
+    def progress(**kw) -> None:
+        for k, v in kw.items():
+            setattr(job, k, v)
+
+    def heartbeat() -> None:
+        while job.state == "running":
+            if time.monotonic() - job.last_seen > _HEARTBEAT_S:
+                job.stop.set()
+                return
+            time.sleep(1.0)
+
+    threading.Thread(target=heartbeat, daemon=True).start()
+    try:
+        res = optimize(models, req, progress=progress, stop=job.stop)
+        job.result = _to_response(res, {m.id: m for m in models}, row_by_id)
+        job.state = "done"
+    except Exception:  # noqa: BLE001
+        logger.exception("falló la optimización")
+        job.error = "Ocurrió un error inesperado al optimizar. Inténtalo de nuevo."
+        job.state = "error"
+    finally:
+        job.finished = time.monotonic()
+        _optimize_lock.release()
+
+
+def _to_response(
+    res: OptimizeResult,
+    by_id: dict[str, MinerModel],
+    row_by_id: dict[str, dict],
+) -> OptimizeResponse:
+    def image(mid: str) -> str:
+        return row_by_id.get(mid, {}).get("image", "")
+
+    return OptimizeResponse(
+        status=res.status,
+        picks=[
+            PickOut(
+                id=p.id,
+                name=p.name,
+                level=p.level,
+                count=p.count,
+                power=str(p.power),
+                bonus_bp=p.bonus_bp,
+                width=p.width,
+                image=image(p.id),
+            )
+            for p in res.picks
+        ],
+        merges=[
+            MergeOut(
+                from_id=mg.from_id,
+                from_name=by_id[mg.from_id].name,
+                from_level=by_id[mg.from_id].level,
+                from_power=str(by_id[mg.from_id].power),
+                count=mg.count,
+                to=MergeTargetOut(
+                    id=mg.to_id,
+                    name=by_id[mg.to_id].name,
+                    level=by_id[mg.to_id].level,
+                    power=str(by_id[mg.to_id].power),
+                    bonus_bp=by_id[mg.to_id].bonus_bp,
+                    width=by_id[mg.to_id].width,
+                    image=image(mg.to_id),
+                ),
+            )
+            for mg in res.merges
+        ],
+        raw_power=str(res.raw_power),
+        bonus_bp=res.bonus_bp,
+        bonus_pct=round(res.bonus_bp / 100, 2),
+        final_power=str(res.final_power),
+        target_final_power=None if res.target_final_power is None else str(res.target_final_power),
+        floor_power=str(res.floor_power),
+        in_window=res.in_window,
+        headroom=None if res.headroom is None else str(res.headroom),
+        headroom_pct=res.headroom_pct,
+        slots_used=res.slots_used,
+        cells_used=res.cells_used,
+        scale=res.scale,
+        solve_time_s=res.solve_time_s,
+    )
 
 
 def _with_merge_targets(

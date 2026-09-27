@@ -234,7 +234,7 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
 .bar { height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; border: 1px solid var(--border); }
 .bar > span { display: block; height: 100%; background: var(--good); }
 
-.status-optimal { color: var(--good); }
+.status-optimal, .status-optimal_primary { color: var(--good); }
 .status-feasible { color: var(--warn); }
 .status-infeasible, .status-unknown { color: var(--bad); }
 

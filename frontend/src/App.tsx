@@ -132,7 +132,7 @@ export default function App() {
 
       {backendDown && (
         <div className="err" style={{ marginBottom: 12 }}>
-          No se puede conectar con el backend (¿corriste uvicorn en :8000?)
+          No se pudo conectar con el servidor. Se volverá a intentar automáticamente.
         </div>
       )}
 

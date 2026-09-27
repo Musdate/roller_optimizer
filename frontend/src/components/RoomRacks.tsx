@@ -58,7 +58,7 @@ export const ROOM_DND_MIME = "application/x-rc-slot";
 export default function RoomRacks() {
   const slots = useStore(selectRoomSlots);
   const inventory = useStore((s) => s.inventory);
-  const addFromCatalog = useStore((s) => s.addFromCatalog);
+  const addToRoom = useStore((s) => s.addToRoom);
   const placeInRoomAt = useStore((s) => s.placeInRoomAt);
   const removeFromRoom = useStore((s) => s.removeFromRoom);
   const reorderRoomSlot = useStore((s) => s.reorderRoomSlot);
@@ -113,10 +113,9 @@ export default function RoomRacks() {
     } else if (p.source === "room" && p.index != null) {
       reorderRoomSlot(p.index, cellIndex);
     } else if (p.source === "catalog" && p.miner) {
-      // arrastrado directo desde el catálogo: se agrega al inventario (o se
-      // suma 1 si ya lo tenías) y de una se pone en esta celda.
-      addFromCatalog(p.miner, 1);
-      placeInRoomAt(p.miner.id, cellIndex);
+      // arrastrado directo desde el catálogo: va a la sala, sin pasar por el
+      // inventario (RULES.md §5.5)
+      addToRoom(p.miner, cellIndex);
     }
   };
 
@@ -157,7 +156,7 @@ export default function RoomRacks() {
         className={`rack-slot filled${isOver ? " drag-over" : ""}${isSelected ? " selected" : ""}`}
         style={{ flex: width }}
         draggable
-        title={`${it?.name ?? id} — click para ver info; arrástralo a “Mi inventario” para devolverlo, o a “Suelta aquí” para eliminarlo`}
+        title={`${it?.name ?? id} — clic para ver info; arrástralo a “Suelta aquí” para quitarlo de la sala`}
         onDragStart={(e) => {
           e.dataTransfer.setData(
             ROOM_DND_MIME,
@@ -225,7 +224,7 @@ export default function RoomRacks() {
           />
           <div className="room-selected-info">
             <span className="name-row">
-              {selectedItem.name || <span className="muted">custom</span>}
+              {selectedItem.name || <span className="muted">Personalizado</span>}
             </span>
             <span className="muted" title={formatExactGh(BigInt(selectedItem.power))}>
               {formatPower(BigInt(selectedItem.power))} · +{bpToPct(selectedItem.bonus_bp)} ·{" "}

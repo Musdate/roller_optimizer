@@ -82,7 +82,7 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
               title={
                 checkCooldown.active
                   ? `Espera ${checkCooldown.secondsLeft}s antes de volver a buscar`
-                  : "Busca mineros nuevos en la API de RollerCoin y trae solo los que falten (unos segundos)"
+                  : "Busca mineros nuevos en RollerCoin y trae solo los que falten (unos segundos)"
               }
               onClick={() => {
                 setErr(null);

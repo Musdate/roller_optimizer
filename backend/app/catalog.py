@@ -496,20 +496,26 @@ def fetch_user_room(user_id: str) -> dict:
             with httpx.Client(timeout=20, headers={"User-Agent": "optimizador-roller/0.1"}) as client:
                 return client.get(f"{_BASE}/RollercoinUser/room", params={"userId": user_id})
         except httpx.HTTPError as exc:
-            raise RoomSyncError(f"no se pudo contactar la API de RollerCoin: {exc}") from exc
+            raise RoomSyncError(
+                "No se pudo conectar con RollerCoin. Inténtalo de nuevo en unos minutos."
+            ) from exc
 
     r = _do_request()
     if r.status_code == 429:
         time.sleep(3)
         r = _do_request()
     if r.status_code == 429:
-        raise RoomSyncError("la API de RollerCoin está limitando las solicitudes ahora mismo — espera unos segundos y vuelve a intentar")
+        raise RoomSyncError(
+            "RollerCoin está limitando las consultas en este momento. Espera unos segundos e inténtalo de nuevo."
+        )
     if r.status_code != 200:
-        raise RoomSyncError(f"no se encontró esa sala (¿userId correcto?) — HTTP {r.status_code}")
+        raise RoomSyncError("No se encontró la sala. Verifica que el ID de usuario sea correcto.")
     try:
         body = r.json()
     except json.JSONDecodeError as exc:
-        raise RoomSyncError("respuesta inválida de la API de RollerCoin") from exc
+        raise RoomSyncError(
+            "RollerCoin devolvió una respuesta inesperada. Inténtalo de nuevo en unos minutos."
+        ) from exc
 
     # las coordenadas (x, y) de cada rack son relativas a SU sala -- una
     # cuenta con 2+ salas físicas puede perfectamente tener un rack en

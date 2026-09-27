@@ -42,6 +42,13 @@ npm run build      # tsc (typecheck) && vite build -> dist/
 
 No hay ESLint; `npm run build` es la verificación (falla si `tsc` no pasa).
 
+### Backend + frontend juntos (raíz del repo)
+
+```bash
+./dev.ps1     # PowerShell; Ctrl+C detiene ambos
+./dev.sh      # Git Bash
+```
+
 ### Docker (build de producción, raíz del repo)
 
 ```bash
@@ -60,12 +67,19 @@ CORS real).
 ### Backend — capa delgada sobre lógica pura
 
 - **`app/optimizer.py`** — lógica pura (solo depende de `ortools`). Modelo CP-SAT
-  exacto con linealización manual del producto `poder × bonus`. Resuelve en **2
-  pasadas**: (1) maximizar `F`, (2) fijar `F ≥ F*` y minimizar `B·W − P` para
-  obtener menor bonus y, como desempate, mayor poder bruto (sin gap: un gap
-  relativo ahí deja el poder bruto lejos del óptimo). Con `allow_merges`, una
+  exacto con linealización manual del producto `poder × bonus`. Tope = liga
+  elegida; con `margin_bp` hay una **ventana** `piso ≤ F ≤ tope` (RULES.md
+  §5.2-5.3). **Modo ventana**: (1) maximizar `P` con `F ≥ piso`, (2) fijar
+  `P ≥ P*` y maximizar `F`. Si nada llega al piso, **respaldo** (el criterio
+  histórico, y el único sin `margin_bp`): (1) maximizar `F`, (2) fijar `F ≥ F*`
+  y minimizar `B·W − P` (sin gap: un gap relativo ahí deja el poder bruto lejos
+  del óptimo). En los dos modos, (3) menos mineros y, a igualdad, menos merges
+  (`min Σuse·(K+1) + Σk`). Un solo plazo total; los desempates van con tope de 10 s porque
+  demostrarlos puede no terminar nunca (estado `optimal_primary`). Acepta
+  `progress` y un `stop` (`threading.Event` → `solver.stop_search()`), RULES.md
+  §5.10. Workers desde `OPT_WORKERS` (default 8). Con `allow_merges`, una
   variable `k[m]` por modelo mergeable (2 copias → 1 del nivel siguiente, que
-  `main.py` saca del catálogo) y una pasada 3 que minimiza merges (RULES.md
+  `main.py` saca del catálogo), que entran en esa pasada 3 (RULES.md
   §5.9, §7.3). Antes: atajo si todo
   el inventario cabe, y heurística voraz que sirve de *hint* y de *fallback*
   garantizado (el resultado nunca es peor que la voraz). El poder se **escala**
@@ -86,10 +100,15 @@ CORS real).
   catálogo retrocede al seed en cada arranque. Siempre hace *merge* (un refresh
   parcial nunca borra datos). Caché en `backend/.cache/catalog.json` (7 días,
   efímera).
-- **`app/main.py`** — endpoints FastAPI, sin lógica propia. `/api/optimize` tiene
-  un **lock global no-bloqueante**: solo 1 optimización a la vez, el resto recibe
-  429 al toque (el solver satura CPU en un VPS chico). También sirve
+- **`app/main.py`** — endpoints FastAPI, sin lógica propia. `POST /api/optimize`
+  **inicia un trabajo** en un hilo y devuelve `job_id`; `GET /api/optimize/{id}`
+  da progreso/resultado (y es el heartbeat: sin consultas en 15 s se detiene
+  solo); `POST .../stop` lo corta. **Lock global no-bloqueante**: 1 trabajo a la
+  vez, el resto recibe 429 (el solver satura CPU en un VPS chico). También sirve
   `backend/static/` en `/` si existe.
+- **`app/leagues.py`** — ligas (`/api/League` de la misma API; `minPower` en
+  GH/s, tope = `minPower` de la siguiente − 1). Seed en
+  `app/data/leagues_seed.json`, refresco en segundo plano ≤ 1 vez/24 h.
 - **`app/models.py`** — schemas Pydantic. Los números que exceden `2^53`
   (poderes) viajan como **string** en el JSON.
 - **`app/paste.py`** — parser del texto que se copia del inventario de
@@ -114,9 +133,13 @@ CORS real).
   la **sala modelada por posición** (`roomSlots`: 1 entrada por celda física
   0..95; un minero de 2 celdas ocupa un par alineado a estante). `reconcileRoomSlots`
   repara `roomSlots` contra los `inRoom` del inventario. Cada modelo tiene
-  `quantity` (tengo), `inRoom` (puestas en sala) y `planned` (planeo adquirir);
-  `selectOptimizeList` manda `quantity + planned` al optimizador. Los selectores
-  al final del archivo derivan las distintas vistas.
+  `quantity` ("Mi inventario"), `inRoom` (sala) y `planned` (planeo adquirir):
+  **inventario y sala son independientes**, como en el juego (RULES.md §5.5).
+  La sala simula movimientos sin tocar el inventario; `simUsed` cuenta las
+  copias del inventario ya usadas, y `selectOptimizeList` manda
+  `quantity − simUsed + inRoom + planned`. `persist` v2 migra los datos v1
+  (`quantity` incluía la sala). Los selectores al final del archivo derivan las
+  distintas vistas.
 - **`src/calc.ts`** y **`src/power.ts`** — la fórmula `F = P·(10000+B)/10000` y
   el parseo/formato de hashrate con `BigInt`. **`calc.ts` duplica la fórmula de
   `optimizer.py`** — mantener en sync. Unidad interna en todos lados: **GH/s**
@@ -128,7 +151,10 @@ CORS real).
 
 ### Comparación de resultado (RULES.md §5.7)
 
-Tras optimizar, el resultado se compara con la sala actual (`inRoom`) en
-cascada — el primer criterio que difiere decide: (1) mayor poder final
-**redondeado a como se muestra** (unidad + 3 decimales, no GH/s exactos),
-(2) menos bonus, (3) mayor poder bruto, (4) menos mineros, (5) menos merges.
+Tras optimizar, el resultado se compara con la sala actual (`inRoom`): primero
+por la ventana (pasar el tope pierde siempre; dentro de la ventana gana a fuera),
+después en cascada — el primer criterio que difiere decide. Dentro de la
+ventana: (1) mayor poder bruto, (2) mayor poder final, (3) menos mineros,
+(4) menos merges. Bajo el piso: (1) mayor poder final, (2) menos bonus,
+(3) mayor bruto, (4) menos mineros, (5) menos merges. Los poderes se comparan
+**redondeados a como se muestran** (unidad + 3 decimales, no GH/s exactos).
