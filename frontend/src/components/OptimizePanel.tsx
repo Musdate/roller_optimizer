@@ -349,7 +349,7 @@ export default function OptimizePanel() {
           </button>
         )}
       </div>
-      {running && <Progress status={status} />}
+      {running && <Progress status={status} unit={unit} />}
       {list.length === 0 && (
         <span className="muted" style={{ marginLeft: 8 }}>
           añade mineros al inventario primero
@@ -369,14 +369,23 @@ export default function OptimizePanel() {
   );
 }
 
-function Progress({ status }: { status: OptimizeJobStatus | null }) {
+/** Qué poder maximiza cada pasada (las de desempate no informan valores). */
+const PHASE_POWER: Partial<Record<OptimizePhase, string>> = {
+  raw: "de poder bruto",
+  final: "de poder final",
+  fallback: "de poder final",
+};
+
+function Progress({ status, unit }: { status: OptimizeJobStatus | null; unit: string }) {
   const elapsed = status?.elapsed_s ?? 0;
   const limit = status?.time_limit_s ?? TIME_LIMIT_S;
   const best = status?.best ? BigInt(status.best) : null;
   const bound = status?.bound ? BigInt(status.bound) : null;
-  const gapPct =
-    best !== null && bound !== null && bound > 0n && bound >= best
-      ? Number(((bound - best) * 100000n) / bound) / 1000
+  const fmt = (v: bigint) => formatPower(v, 3, false, unit);
+  // mejor / máximo posible, truncado: 100 % solo cuando ya está demostrado
+  const surePct =
+    best !== null && bound !== null && bound > 0n
+      ? Math.min(100, Number((best * 1000n) / bound) / 10)
       : null;
   return (
     <div style={{ marginTop: 8, fontSize: 12 }}>
@@ -394,10 +403,20 @@ function Progress({ status }: { status: OptimizeJobStatus | null }) {
         <span style={{ width: `${Math.min(100, (elapsed / limit) * 100)}%` }} />
       </div>
       {best !== null && (
-        <div className="muted">
-          mejor encontrado: {formatPower(best)}
-          {bound !== null && <> · cota: {formatPower(bound)}</>}
-          {gapPct !== null && <> · falta demostrar ≤ {gapPct.toFixed(3)}%</>}
+        <div style={{ margin: "6px 0 4px" }}>
+          <div>
+            Mejor sala encontrada: <b>{fmt(best)}</b> {PHASE_POWER[status?.phase ?? ""] ?? ""}
+          </div>
+          {bound !== null && surePct !== null && (
+            <>
+              <div className="muted">
+                El máximo posible es {fmt(bound)} o menos · seguro al {surePct.toFixed(1)} %
+              </div>
+              <div className="bar" style={{ margin: "4px 0" }}>
+                <span style={{ width: `${surePct}%` }} />
+              </div>
+            </>
+          )}
         </div>
       )}
       <div className="muted">

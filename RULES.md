@@ -385,10 +385,20 @@ La optimización corre como un **trabajo en segundo plano** en el backend (§8):
 el frontend lo inicia, consulta su estado cada ~1 s y lo puede detener.
 
 - **Tope duro de 5 min** (`time_limit_s = 300`) para todo el trabajo.
-- Mientras corre, el panel muestra: la pasada en curso ("poder bruto", "poder
-  final", "menos mineros" o "respaldo"), el tiempo `Ns / máx 5:00`, el **mejor valor
-  encontrado** y la **cota** del solver (lo máximo que en teoría se puede
-  lograr) con el % que falta para demostrar el óptimo.
+- Mientras corre, el panel muestra la pasada en curso ("poder bruto", "poder
+  final", "menos mineros" o "respaldo") y el tiempo `m:ss / máx 5:00` con su
+  barra. En las pasadas que maximizan poder, además, en la unidad de la liga
+  (§5.9) y sin jerga del solver:
+
+  ```
+  Mejor sala encontrada: 14.003 EH/s de poder bruto        (o "de poder final")
+  El máximo posible es 15.341 EH/s o menos · seguro al 91.3 %
+  [barra al 91.3 %]
+  ```
+
+  "El máximo posible" es la cota del solver (ninguna combinación la supera) y
+  "seguro al" = `mejor / cota`, truncado a 1 decimal: sube hacia 100 % y al
+  llegar la pasada queda demostrada óptima.
 - Botón **"Detener"**: corta la búsqueda y se queda con la mejor solución
   encontrada. Si se detiene durante la primera pasada,
   las siguientes (desempate
