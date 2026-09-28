@@ -77,12 +77,16 @@ _limiter = _RateLimiter(_MAX_RPS)
 # ("Captain's Fortune" -> captains_fortune.png), pero la API a veces devuelve el
 # `fileName` con la comilla tipográfica (’) intacta -> URL rota. Se sanea aquí.
 _FNAME_STRIP = str.maketrans({"'": "", "’": "", "ʼ": "", "`": ""})
+# Excepciones: archivos que en el CDN SÍ conservan la comilla tipográfica
+# (verificado contra el CDN, RULES.md §6). Clave = nombre ya saneado.
+_CDN_KEEPS_APOSTROPHE = {"corsairs_oath": "corsair%E2%80%99s_oath"}
 
 
 def _image_url(file_name: str | None, version: int | None) -> str:
     if not file_name:
         return ""
     file_name = file_name.translate(_FNAME_STRIP)
+    file_name = _CDN_KEEPS_APOSTROPHE.get(file_name, file_name)
     return f"{_CDN}/miners/{file_name}.png" + (f"?v={version}" if version else "")
 
 

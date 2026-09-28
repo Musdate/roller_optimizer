@@ -11,9 +11,17 @@ def test_image_url_strips_apostrophes():
     assert _image_url("captain’s_fortune", 123) == (
         "https://cdn.rollercoincalculator.app/miners/captains_fortune.png?v=123"
     )
-    assert _image_url("corsair's_oath", None) == (
-        "https://cdn.rollercoincalculator.app/miners/corsairs_oath.png"
+    assert _image_url("devil's_ember", None) == (
+        "https://cdn.rollercoincalculator.app/miners/devils_ember.png"
     )
+
+
+def test_image_url_keeps_apostrophe_where_cdn_does():
+    # excepción: en el CDN este archivo conserva la comilla tipográfica
+    for raw in ("corsair’s_oath", "corsair's_oath", "corsairs_oath"):
+        assert _image_url(raw, 7) == (
+            "https://cdn.rollercoincalculator.app/miners/corsair%E2%80%99s_oath.png?v=7"
+        )
 
 
 def test_image_url_leaves_clean_names_alone():

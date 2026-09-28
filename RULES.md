@@ -468,9 +468,15 @@ Campos usados de cada item:
 ⚠️ **Apóstrofos en `fileName`**: el CDN quita los apóstrofos del nombre
 (`Captain's Fortune` → `captains_fortune.png`), pero para los niveles de *merge*
 la API a veces devuelve `resultItemFileName` con la comilla tipográfica `’`
-intacta → URL 404. `_image_url()` los saca (`'` `’` `ʼ` `` ` ``). Afectaba a 5
-mineros (Captain's Fortune, Corsair's Oath, Devil's Ember, Hashbeard's Ship,
-King's Legacy); el seed se parcheó en sitio.
+intacta → URL 404. `_image_url()` los saca (`'` `’` `ʼ` `` ` ``). Afectaba a 4
+mineros (Captain's Fortune, Devil's Ember, Hashbeard's Ship, King's Legacy); el
+seed se parcheó en sitio.
+
+**Excepción:** algunos archivos del CDN **sí conservan** la comilla tipográfica.
+Verificado contra el CDN para los 77 nombres con comilla del catálogo: solo
+**Corsair's Oath** (`corsair’s_oath.png`, URL-encoded `corsair%E2%80%99s_oath`).
+Van en `_CDN_KEEPS_APOSTROPHE` y `_image_url()` los devuelve así en vez de sacar
+la comilla.
 
 **Las imágenes son sprite sheets** (los mineros están animados en el juego):
 6 frames en horizontal, cada frame de `58·width × 50` px
