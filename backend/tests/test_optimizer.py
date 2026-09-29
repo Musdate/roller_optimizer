@@ -10,6 +10,7 @@ import time
 import pytest
 
 from app.optimizer import (
+    LockedOverCapError,
     MinerModel,
     OptimizeRequest,
     final_power,
@@ -26,7 +27,7 @@ def window_key(fin, bonus, raw, floor, miners):
 
 def brute_force(models: list[MinerModel], req: OptimizeRequest, floor=None):
     """Óptimo de referencia por enumeración (solo para inventarios chicos)."""
-    ranges = [range(min(m.quantity, req.max_slots) + 1) for m in models]
+    ranges = [range(m.locked, min(m.quantity, req.max_slots) + 1) for m in models]
     best = None  # (final, -bonus, raw, counts)
     for combo in itertools.product(*ranges):
         if req.slot_mode == "cells":
@@ -579,3 +580,86 @@ def test_aporte_del_merge_cuenta_el_minero_desplazado():
         OptimizeRequest(**base, excluded_merges=frozenset({"c0"}), primary_only=True),
     )
     assert res.raw_power - alt.raw_power == 1100
+
+
+# --------------------------------------------------------------------------- #
+# Mineros bloqueados (RULES.md §5.11)
+# --------------------------------------------------------------------------- #
+
+
+def test_bloqueado_entra_aunque_haya_algo_mejor():
+    fuerte = MinerModel(id="f", power=100, bonus_bp=0, quantity=1)
+    debil = MinerModel(id="d", power=10, bonus_bp=0, quantity=1, locked=1)
+    res = optimize([fuerte, debil], OptimizeRequest(target_final_power=105, max_slots=2))
+    assert {p.id: p.count for p in res.picks} == {"d": 1}
+
+
+def test_bloqueado_descuenta_celdas():
+    grande = MinerModel(id="g", power=100, bonus_bp=0, quantity=2, width=2, locked=1)
+    chico = MinerModel(id="c", power=60, bonus_bp=0, quantity=2, width=1)
+    res = optimize(
+        [grande, chico],
+        OptimizeRequest(target_final_power=10**6, max_slots=3, slot_mode="cells"),
+    )
+    assert {p.id: p.count for p in res.picks} == {"g": 1, "c": 1}
+
+
+def test_bloqueado_sin_poder_ni_bonus_igual_ocupa_su_celda():
+    vacio = MinerModel(id="v", power=0, bonus_bp=0, quantity=1, locked=1)
+    otro = MinerModel(id="o", power=10, bonus_bp=0, quantity=2)
+    res = optimize([vacio, otro], OptimizeRequest(target_final_power=100, max_slots=2))
+    assert {p.id: p.count for p in res.picks} == {"v": 1, "o": 1}
+
+
+def test_bloqueados_sobre_el_tope_da_error():
+    m = MinerModel(id="a", power=100, bonus_bp=0, quantity=2, locked=2)
+    with pytest.raises(LockedOverCapError):
+        optimize([m], OptimizeRequest(target_final_power=150, max_slots=4))
+
+
+def test_bloqueado_no_se_mergea():
+    models = _chain([2, 0], [10, 100], [0, 0])
+    models[0] = MinerModel(**{**models[0].__dict__, "locked": 2})
+    res = optimize(
+        models,
+        OptimizeRequest(target_final_power=10**6, max_slots=4, allow_merges=True),
+    )
+    assert res.merges == []
+    assert {p.id: p.count for p in res.picks} == {"c0": 2}
+
+
+@pytest.mark.parametrize("seed", range(25))
+def test_fuzz_bloqueados_vs_fuerza_bruta(seed):
+    rng = random.Random(1000 + seed)
+    n = rng.randint(1, 4)
+    models = []
+    for i in range(n):
+        q = rng.randint(1, 4)
+        models.append(
+            MinerModel(
+                id=f"m{i}",
+                power=rng.choice([1, 5, 10, 25, 100, 250]),
+                bonus_bp=rng.choice([0, 0, 100, 500, 2500]),
+                quantity=q,
+                width=rng.choice([1, 1, 2]),
+                locked=rng.choice([0, 0, 1, q]),
+            )
+        )
+    max_slots = rng.randint(1, 8)
+    slot_mode = rng.choice(["miners", "cells"])
+    max_raw = sum(min(m.quantity, max_slots) * m.power for m in models)
+    target = rng.randint(0, final_power(max_raw, sum(m.bonus_bp for m in models)) + 50)
+    floor = target - target // 10 if rng.random() < 0.5 else None
+    req = OptimizeRequest(
+        target_final_power=target, max_slots=max_slots, slot_mode=slot_mode,
+        margin_bp=1000 if floor is not None else None,
+    )
+    ref = brute_force(models, req, floor)
+    if ref is None:
+        with pytest.raises(LockedOverCapError):
+            optimize(models, req)
+        return
+    res = optimize(models, req)
+    counts = {p.id: p.count for p in res.picks}
+    assert all(counts.get(m.id, 0) >= m.locked for m in models)
+    assert result_key(res, floor) == ref[0], f"seed={seed} {models} {max_slots}/{slot_mode} {target}"

@@ -132,7 +132,9 @@ CORS real).
   `persist` a `localStorage`, clave `roller-optimizer`): inventario, objetivo, nº de salas, y
   la **sala modelada por posición** (`roomSlots`: 1 entrada por celda física
   0..95; un minero de 2 celdas ocupa un par alineado a estante). `reconcileRoomSlots`
-  repara `roomSlots` contra los `inRoom` del inventario. Cada modelo tiene
+  repara `roomSlots` contra los `inRoom` del inventario, sin recortar primero
+  los **bloqueados** (`roomLocks`: celda + id; se mandan como `locked` al
+  optimizador, que los fija con `use ≥ locked`, RULES.md §5.11). Cada modelo tiene
   `quantity` ("Mi inventario"), `inRoom` (sala) y `planned` (planeo adquirir):
   **inventario y sala son independientes**, como en el juego (RULES.md §5.5).
   La sala simula movimientos sin tocar el inventario; `simUsed` cuenta las

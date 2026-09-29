@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { DragEvent } from "react";
-import { useStore, selectRoomSlots } from "../store";
+import { useStore, selectRoomSlots, lockedCellSet } from "../store";
 import { useDragState } from "../dragState";
 import MinerSprite from "./MinerSprite";
 import { bpToPct, formatPower, formatExactGh } from "../power";
@@ -55,6 +55,14 @@ interface DragPayload {
 }
 export const ROOM_DND_MIME = "application/x-rc-slot";
 
+function LockIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true">
+      <path d="M7 10V7a5 5 0 0 1 10 0v3h1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V11a1 1 0 0 1 1-1h1Zm2 0h6V7a3 3 0 0 0-6 0v3Z" />
+    </svg>
+  );
+}
+
 export default function RoomRacks() {
   const slots = useStore(selectRoomSlots);
   const inventory = useStore((s) => s.inventory);
@@ -62,12 +70,15 @@ export default function RoomRacks() {
   const placeInRoomAt = useStore((s) => s.placeInRoomAt);
   const removeFromRoom = useStore((s) => s.removeFromRoom);
   const reorderRoomSlot = useStore((s) => s.reorderRoomSlot);
+  const roomLocks = useStore((s) => s.roomLocks);
+  const toggleLock = useStore((s) => s.toggleLock);
   const draggingWidth = useDragState((s) => s.width);
   const setDraggingWidth = useDragState((s) => s.setWidth);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [selectedCell, setSelectedCell] = useState<number | null>(null);
 
   const racks = buildRacks(slots);
+  const locked = lockedCellSet(slots, roomLocks, inventory);
   const topRow = racks.slice(0, TOP_RACKS);
   const bottomRow = racks.slice(TOP_RACKS, ROOM1_RACKS);
 
@@ -150,13 +161,14 @@ export default function RoomRacks() {
 
     const it = inventory[id];
     const isSelected = selectedCell === cellIndex;
+    const isLocked = locked.has(cellIndex);
     return (
       <div
         key={key}
-        className={`rack-slot filled${isOver ? " drag-over" : ""}${isSelected ? " selected" : ""}`}
+        className={`rack-slot filled${isOver ? " drag-over" : ""}${isSelected ? " selected" : ""}${isLocked ? " locked" : ""}`}
         style={{ flex: width }}
         draggable
-        title={`${it?.name ?? id} — clic para ver info; arrástralo a “Suelta aquí” para quitarlo de la sala`}
+        title={`${it?.name ?? id}${isLocked ? " (bloqueado: siempre entra en la optimización)" : ""} — clic para ver info; arrástralo a “Suelta aquí” para quitarlo de la sala`}
         onDragStart={(e) => {
           e.dataTransfer.setData(
             ROOM_DND_MIME,
@@ -176,6 +188,11 @@ export default function RoomRacks() {
         onClick={() => setSelectedCell((v) => (v === cellIndex ? null : cellIndex))}
       >
         {it && <MinerSprite url={it.image ?? ""} width={it.width} size={26} level={it.level} />}
+        {isLocked && (
+          <span className="lock-badge">
+            <LockIcon />
+          </span>
+        )}
       </div>
     );
   };
@@ -232,6 +249,17 @@ export default function RoomRacks() {
             </span>
           </div>
           <div className="col-btns">
+            <button
+              className="tiny"
+              title={
+                locked.has(selectedCell)
+                  ? "Deja que la optimización decida si lo usa"
+                  : "La optimización lo incluye siempre y descuenta sus celdas"
+              }
+              onClick={() => toggleLock(selectedCell)}
+            >
+              {locked.has(selectedCell) ? "Desbloquear" : "Bloquear"}
+            </button>
             <button
               className="tiny"
               onClick={() => {

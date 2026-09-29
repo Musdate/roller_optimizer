@@ -31,6 +31,49 @@ export const INV_SORTS: { value: InvSort; label: string }[] = [
  *  que guardaba solo una lista compacta sin huecos). */
 export const ROOM1_CELLS = 96; // = roomsToCells(1)
 
+/** Minero bloqueado en la sala (RULES.md §5.11): celda inicial + id, así un
+ *  bloqueo viejo nunca se "pega" a otro minero que caiga en esa celda. */
+export interface RoomLock {
+  cell: number;
+  id: string;
+}
+
+/** Celda inicial del minero que ocupa `cell` (el par alineado si es de 2). */
+function minerStart(
+  slots: (string | null)[],
+  cell: number,
+  inv: Record<string, InventoryItem>,
+): number | null {
+  const id = slots[cell];
+  if (id == null) return null;
+  if ((inv[id]?.width ?? 1) < 2) return cell;
+  const start = cell - (cell % 2);
+  return slots[start] === id && slots[start + 1] === id ? start : cell;
+}
+
+/** Bloqueos que siguen apuntando a su minero en `slots`. */
+export function pruneLocks(
+  slots: (string | null)[],
+  locks: RoomLock[],
+  inv: Record<string, InventoryItem>,
+): RoomLock[] {
+  return locks.filter((l) => slots[l.cell] === l.id && minerStart(slots, l.cell, inv) === l.cell);
+}
+
+/** Todas las celdas físicas ocupadas por mineros bloqueados. */
+export function lockedCellSet(
+  slots: (string | null)[],
+  locks: RoomLock[],
+  inv: Record<string, InventoryItem>,
+): Set<number> {
+  const out = new Set<number>();
+  for (const l of pruneLocks(slots, locks, inv)) {
+    out.add(l.cell);
+    if ((inv[l.id]?.width ?? 1) >= 2) out.add(l.cell + 1);
+  }
+  return out;
+}
+
 /** Cuenta cuántas copias de cada id hay realmente puestas en `slots`,
  *  agrupando por estante para no contar dos veces un par de 2 celdas. */
 function countRoomInstances(
@@ -127,11 +170,13 @@ const isEmpty = (it: InventoryItem): boolean =>
   it.quantity <= 0 && (it.inRoom ?? 0) <= 0 && (it.planned ?? 0) <= 0;
 
 /** Repara `slots` para que coincida con los `inRoom` actuales del
- *  inventario: recorta copias de más (desde el final) y agrega las que
- *  falten en el primer hueco libre. Pura — no muta. */
+ *  inventario: recorta copias de más (desde el final, las bloqueadas solo si
+ *  no alcanza con el resto) y agrega las que falten en el primer hueco
+ *  libre. Pura — no muta. */
 export function reconcileRoomSlots(
   slots: (string | null)[],
   inv: Record<string, InventoryItem>,
+  locks: RoomLock[] = [],
 ): (string | null)[] {
   const next = slots.slice(0, ROOM1_CELLS);
   while (next.length < ROOM1_CELLS) next.push(null);
@@ -148,27 +193,32 @@ export function reconcileRoomSlots(
   }
 
   // recortar excedentes, de atrás para adelante
+  const locked = lockedCellSet(next, locks, inv);
   const have = countRoomInstances(next, inv);
   for (const [id, cap] of Object.entries(target)) {
     let excess = (have[id] ?? 0) - cap;
     if (excess <= 0) continue;
     const w = inv[id]?.width ?? 1;
-    for (let shelf = Math.floor(next.length / 2) - 1; shelf >= 0 && excess > 0; shelf--) {
-      const li = shelf * 2;
-      const ri = li + 1;
-      if (w === 2 && next[li] === id && next[ri] === id) {
-        next[li] = null;
-        next[ri] = null;
-        excess--;
-      } else {
-        if (next[ri] === id) {
+    for (const allowLocked of [false, true]) {
+      const free = (c: number) => allowLocked || !locked.has(c);
+      for (let shelf = Math.floor(next.length / 2) - 1; shelf >= 0 && excess > 0; shelf--) {
+        const li = shelf * 2;
+        const ri = li + 1;
+        if (w === 2 && next[li] === id && next[ri] === id) {
+          if (!free(li)) continue;
+          next[li] = null;
           next[ri] = null;
           excess--;
-          if (excess <= 0) break;
-        }
-        if (next[li] === id) {
-          next[li] = null;
-          excess--;
+        } else {
+          if (next[ri] === id && free(ri)) {
+            next[ri] = null;
+            excess--;
+            if (excess <= 0) break;
+          }
+          if (next[li] === id && free(li)) {
+            next[li] = null;
+            excess--;
+          }
         }
       }
     }
@@ -205,6 +255,8 @@ interface State {
   rooms: number;
   /** Sala 1 por posición: 1 entrada por celda física (0..95). */
   roomSlots: (string | null)[];
+  /** Mineros bloqueados en la sala (RULES.md §5.11). */
+  roomLocks: RoomLock[];
   /** userId de RollerCoin para sincronizar la sala real ("recargar sala"). */
   rollercoinUserId: string;
   /** Merges descartados a mano: el optimizador no los propone (RULES.md §5.9). */
@@ -241,6 +293,8 @@ interface State {
   removeFromRoom: (cellIndex: number) => void;
   /** Mueve dentro de la sala (drag&drop entre celdas). */
   reorderRoomSlot: (fromCellIndex: number, toCellIndex: number) => void;
+  /** Bloquea / desbloquea el minero de la celda dada (RULES.md §5.11). */
+  toggleLock: (cellIndex: number) => void;
   /** Vacía la sala por completo (no toca el inventario). */
   clearRoom: () => void;
   mergeParsedInventory: (
@@ -287,6 +341,7 @@ export const useStore = create<State>()(
       marginPct: "1",
       rooms: 1,
       roomSlots: Array(ROOM1_CELLS).fill(null),
+      roomLocks: [],
       rollercoinUserId: "",
       excludedMerges: [],
 
@@ -346,7 +401,8 @@ export const useStore = create<State>()(
         set((s) => {
           const cur = s.inventory[id];
           if (!cur) return s;
-          const next = { ...cur, planned: Math.max(0, Math.floor(n) || 0) };
+          const planned = Math.max(0, Math.floor(n) || 0);
+          const next = { ...cur, planned, plannedUsed: Math.min(cur.plannedUsed ?? 0, planned) };
           if (isEmpty(next)) {
             const { [id]: _drop, ...rest } = s.inventory;
             return { inventory: rest };
@@ -365,33 +421,37 @@ export const useStore = create<State>()(
             if (!inv[mg.to.id]) inv[mg.to.id] = { ...mg.to, quantity: 0, order: nextOrder(inv) };
           }
 
-          // Simula sin tocar `quantity` (RULES.md §5.7): las copias del
-          // inventario que usa la sala o un merge se cuentan en `simUsed`.
+          // Simula sin tocar `quantity` ni `planned` (RULES.md §5.7): las
+          // copias que usa la sala o un merge se cuentan en `simUsed` (del
+          // inventario) y `plannedUsed` (de lo planeado).
           for (const [id, cur] of Object.entries(inv)) {
             const q = cur.quantity;
             const room = cur.inRoom ?? 0;
+            const planned = cur.planned ?? 0;
             let used = cur.simUsed ?? 0;
-            let planned = cur.planned ?? 0;
+            let pUsed = cur.plannedUsed ?? 0;
             const c = Math.max(0, Math.floor(counts[id] ?? 0));
             const take = (n: number) => {
               const fromInv = Math.min(n, q - used);
               used += fromInv;
-              const fromPlanned = Math.min(n - fromInv, planned);
-              planned -= fromPlanned;
+              pUsed += Math.min(n - fromInv, planned - pUsed);
             };
 
             // 1) las que salen: primero al merge; del resto, se liberan las
-            //    que venían del inventario y las demás se eliminan
+            //    que venían del inventario, luego las de lo planeado, y las
+            //    demás se eliminan
             const out = Math.max(0, room - c);
             const toMerge = Math.min(out, consumed[id] ?? 0);
-            used -= Math.min(out - toMerge, used);
+            const freeInv = Math.min(out - toMerge, used);
+            used -= freeInv;
+            pUsed -= Math.min(out - toMerge - freeInv, pUsed);
             // 2) lo que el merge consume y no salió de la sala
             take((consumed[id] ?? 0) - toMerge);
             // 3) las que entran: de los merges, del inventario, de lo planeado
             const inn = Math.max(0, c - room);
             take(Math.max(0, inn - (produced[id] ?? 0)));
 
-            inv[id] = { ...cur, inRoom: c, simUsed: used, planned: planned || undefined };
+            inv[id] = { ...cur, inRoom: c, simUsed: used, plannedUsed: pUsed || undefined };
             if (isEmpty(inv[id])) delete inv[id];
           }
           return { inventory: inv };
@@ -406,7 +466,7 @@ export const useStore = create<State>()(
           // se descarta (`simUsed = 0`). "Mi inventario" no se toca.
           const inv: Record<string, InventoryItem> = {};
           for (const [id, it] of Object.entries(s.inventory)) {
-            inv[id] = { ...it, inRoom: 0, simUsed: 0 };
+            inv[id] = { ...it, inRoom: 0, simUsed: 0, plannedUsed: 0 };
           }
           let ord = nextOrder(s.inventory) - 1;
           for (const ri of items) {
@@ -442,7 +502,27 @@ export const useStore = create<State>()(
           for (const [id, it] of Object.entries(inv)) {
             if (isEmpty(it)) delete inv[id];
           }
-          return { inventory: inv, roomSlots: nextSlots };
+
+          // Los bloqueados que siguen puestos en el juego se mantienen
+          // (RULES.md §5.11): en su misma celda si ahí está, si no en otra
+          // copia suya sin bloquear.
+          const oldLocks = pruneLocks(
+            reconcileRoomSlots(s.roomSlots, s.inventory, s.roomLocks),
+            s.roomLocks,
+            s.inventory,
+          );
+          const isStart = (cell: number, id: string) =>
+            nextSlots[cell] === id && minerStart(nextSlots, cell, inv) === cell;
+          const kept = oldLocks.filter((l) => isStart(l.cell, l.id));
+          const taken = new Set(kept.map((l) => l.cell));
+          for (const l of oldLocks) {
+            if (taken.has(l.cell) && nextSlots[l.cell] === l.id) continue;
+            const cell = nextSlots.findIndex((_, c) => !taken.has(c) && isStart(c, l.id));
+            if (cell < 0) continue;
+            kept.push({ cell, id: l.id });
+            taken.add(cell);
+          }
+          return { inventory: inv, roomSlots: nextSlots, roomLocks: kept };
         }),
 
       setRollercoinUserId: (v) => set({ rollercoinUserId: v }),
@@ -453,7 +533,7 @@ export const useStore = create<State>()(
           if (!cur) return s;
           const used = cur.simUsed ?? 0;
           if (used >= cur.quantity) return s; // no quedan copias sin usar en el inventario
-          const slots = reconcileRoomSlots(s.roomSlots, s.inventory);
+          const slots = reconcileRoomSlots(s.roomSlots, s.inventory, s.roomLocks);
           const spot = pickSpot(slots, cur.width, atCellIndex);
           if (spot == null) return s; // sala llena
 
@@ -471,7 +551,7 @@ export const useStore = create<State>()(
 
       addToRoom: (m, atCellIndex) =>
         set((s) => {
-          const slots = reconcileRoomSlots(s.roomSlots, s.inventory);
+          const slots = reconcileRoomSlots(s.roomSlots, s.inventory, s.roomLocks);
           const spot = pickSpot(slots, m.width, atCellIndex);
           if (spot == null) return s; // sala llena
           const cur = s.inventory[m.id];
@@ -497,43 +577,56 @@ export const useStore = create<State>()(
 
       removeFromRoom: (cellIndex) =>
         set((s) => {
-          const slots = reconcileRoomSlots(s.roomSlots, s.inventory);
+          const slots = reconcileRoomSlots(s.roomSlots, s.inventory, s.roomLocks);
           const id = slots[cellIndex];
           if (id == null) return s;
           const cur = s.inventory[id];
           if (!cur) return s;
           const next = clearRoomCell(slots, cellIndex, cur.width);
-          // Si venía del inventario, esa copia deja de estar usada; si no, se
-          // elimina. Nunca pasa a "Mi inventario" (RULES.md §5.5).
+          // Si venía del inventario (o de lo planeado), esa copia deja de
+          // estar usada; si no, se elimina. Nunca pasa a "Mi inventario"
+          // (RULES.md §5.5).
+          const fromInv = (cur.simUsed ?? 0) > 0;
           const item = {
             ...cur,
             inRoom: Math.max(0, (cur.inRoom ?? 0) - 1),
-            simUsed: Math.max(0, (cur.simUsed ?? 0) - 1),
+            simUsed: Math.max(0, (cur.simUsed ?? 0) - (fromInv ? 1 : 0)),
+            plannedUsed: Math.max(0, (cur.plannedUsed ?? 0) - (fromInv ? 0 : 1)),
           };
           const inv = { ...s.inventory };
           if (isEmpty(item)) delete inv[id];
           else inv[id] = item;
-          return { inventory: inv, roomSlots: next };
+          return { inventory: inv, roomSlots: next, roomLocks: pruneLocks(next, s.roomLocks, inv) };
         }),
 
       reorderRoomSlot: (fromCellIndex, toCellIndex) =>
         set((s) => {
-          const slots = reconcileRoomSlots(s.roomSlots, s.inventory);
+          const slots = reconcileRoomSlots(s.roomSlots, s.inventory, s.roomLocks);
           const id = slots[fromCellIndex];
           if (id == null) return s;
           const cur = s.inventory[id];
           if (!cur) return s;
           const w = cur.width;
+          const other = slots[toCellIndex];
+          const otherW = other != null ? s.inventory[other]?.width ?? 1 : 1;
+          // el bloqueo viaja con el minero (RULES.md §5.11)
+          const locks = pruneLocks(slots, s.roomLocks, s.inventory);
+          const moveLocks = (to: (cell: number) => number) =>
+            locks.map((l) => ({ ...l, cell: to(l.cell) }));
 
           // soltado sobre otro minero: se intercambian de lugar
-          const other = slots[toCellIndex];
           if (other != null) {
             const swapped = [...slots];
-            const otherW = s.inventory[other]?.width ?? 1;
             if (w < 2 && otherW < 2) {
               if (fromCellIndex === toCellIndex) return s;
               swapped[fromCellIndex] = other;
               swapped[toCellIndex] = id;
+              return {
+                roomSlots: swapped,
+                roomLocks: moveLocks((c) =>
+                  c === fromCellIndex ? toCellIndex : c === toCellIndex ? fromCellIndex : c,
+                ),
+              };
             } else {
               // uno ocupa 2 celdas: se cambian los estantes completos (un
               // minero de 1 celda que compartía estante viaja con él)
@@ -544,8 +637,18 @@ export const useStore = create<State>()(
                 swapped[fromShelf + d] = slots[toShelf + d];
                 swapped[toShelf + d] = slots[fromShelf + d];
               }
+              const shelfOf = (c: number) => c - (c % 2);
+              return {
+                roomSlots: swapped,
+                roomLocks: moveLocks((c) =>
+                  shelfOf(c) === fromShelf
+                    ? toShelf + (c % 2)
+                    : shelfOf(c) === toShelf
+                      ? fromShelf + (c % 2)
+                      : c,
+                ),
+              };
             }
-            return { roomSlots: swapped };
           }
 
           const next = [...slots];
@@ -565,17 +668,33 @@ export const useStore = create<State>()(
 
           next[spot] = id;
           if (w >= 2) next[spot + 1] = id;
-          return { roomSlots: next };
+          const target = spot;
+          return { roomSlots: next, roomLocks: moveLocks((c) => (c === fromStart ? target : c)) };
+        }),
+
+      toggleLock: (cellIndex) =>
+        set((s) => {
+          const slots = reconcileRoomSlots(s.roomSlots, s.inventory, s.roomLocks);
+          const start = minerStart(slots, cellIndex, s.inventory);
+          if (start == null) return s;
+          const locks = pruneLocks(slots, s.roomLocks, s.inventory);
+          const has = locks.some((l) => l.cell === start);
+          return {
+            roomSlots: slots,
+            roomLocks: has
+              ? locks.filter((l) => l.cell !== start)
+              : [...locks, { cell: start, id: slots[start] as string }],
+          };
         }),
 
       clearRoom: () =>
         set((s) => {
           const inv: Record<string, InventoryItem> = {};
           for (const [id, it] of Object.entries(s.inventory)) {
-            const next = { ...it, inRoom: 0, simUsed: 0 };
+            const next = { ...it, inRoom: 0, simUsed: 0, plannedUsed: 0 };
             if (!isEmpty(next)) inv[id] = next;
           }
-          return { inventory: inv, roomSlots: Array(ROOM1_CELLS).fill(null) };
+          return { inventory: inv, roomSlots: Array(ROOM1_CELLS).fill(null), roomLocks: [] };
         }),
 
       mergeParsedInventory: (items, replace) =>
@@ -638,6 +757,7 @@ export const useStore = create<State>()(
             if (quantity === 0 && inRoom === 0 && planned === 0) continue;
             const width = Math.max(1, num(raw.width, 1));
             const simUsed = legacy ? 0 : Math.min(quantity, Math.max(0, num(raw.simUsed)));
+            const plannedUsed = Math.min(planned, Math.max(0, num(raw.plannedUsed)));
             inv[id] = {
               id,
               name: String(raw.name ?? ""),
@@ -649,6 +769,7 @@ export const useStore = create<State>()(
               inRoom: inRoom || undefined,
               simUsed: simUsed || undefined,
               planned: planned || undefined,
+              plannedUsed: plannedUsed || undefined,
               image: raw.image ? String(raw.image) : undefined,
               order: raw.order != null ? num(raw.order) : ++ord,
             };
@@ -682,7 +803,7 @@ export const useStore = create<State>()(
         set((s) => {
           const inv: Record<string, InventoryItem> = {};
           for (const [id, it] of Object.entries(s.inventory)) {
-            const { planned: _drop, ...rest } = it;
+            const { planned: _drop, plannedUsed: _dropUsed, ...rest } = it;
             if (!isEmpty(rest)) inv[id] = rest;
           }
           return { inventory: inv };
@@ -749,15 +870,27 @@ export const useStore = create<State>()(
 export const selectInventoryList = (s: State): InventoryItem[] =>
   Object.values(s.inventory);
 
+/** Copias bloqueadas por modelo (RULES.md §5.11). */
+export const selectLockedCounts = (s: State): Record<string, number> => {
+  const slots = reconcileRoomSlots(s.roomSlots, s.inventory, s.roomLocks);
+  const out: Record<string, number> = {};
+  for (const l of pruneLocks(slots, s.roomLocks, s.inventory)) out[l.id] = (out[l.id] ?? 0) + 1;
+  return out;
+};
+
 /** Lista para el optimizador: copias efectivas = inventario sin usar + sala +
- *  planeado (RULES.md §5.5). */
-export const selectOptimizeList = (s: State): InventoryItem[] =>
-  Object.values(s.inventory)
+ *  planeado (RULES.md §5.5), con las bloqueadas en `locked` (§5.11). */
+export const selectOptimizeList = (s: State): InventoryItem[] => {
+  const locked = selectLockedCounts(s);
+  return Object.values(s.inventory)
     .map((i) => ({
       ...i,
-      quantity: i.quantity - (i.simUsed ?? 0) + (i.inRoom ?? 0) + (i.planned ?? 0),
+      quantity:
+        i.quantity - (i.simUsed ?? 0) + (i.inRoom ?? 0) + (i.planned ?? 0) - (i.plannedUsed ?? 0),
+      locked: locked[i.id] || undefined,
     }))
     .filter((i) => i.quantity > 0);
+};
 
 /** Mineros que tengo puestos en la sala ahora mismo (inRoom > 0). */
 export const selectRoomList = (s: State): InventoryItem[] =>
@@ -766,7 +899,7 @@ export const selectRoomList = (s: State): InventoryItem[] =>
 /** Celdas de la sala (1 entrada por celda física), reparadas contra los
  *  `inRoom` actuales por si cambiaron desde otro lado (tabla, optimizador). */
 export const selectRoomSlots = (s: State): (string | null)[] =>
-  reconcileRoomSlots(s.roomSlots, s.inventory);
+  reconcileRoomSlots(s.roomSlots, s.inventory, s.roomLocks);
 
 /** Mineros de "Mi inventario" (quantity > 0). */
 export const selectBenchList = (s: State): InventoryItem[] =>

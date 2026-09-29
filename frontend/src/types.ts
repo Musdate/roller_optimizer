@@ -25,8 +25,10 @@ export interface InventoryItem {
   inRoom?: number; // copias puestas en la sala
   simUsed?: number; // copias del inventario ya usadas por la simulación (RULES.md §5.5)
   planned?: number; // cuántas copias planeo adquirir ("Nueva adquisición")
+  plannedUsed?: number; // copias planeadas ya usadas por la simulación (RULES.md §5.6)
   image?: string;
   order?: number; // orden de agregado (para ordenar "más reciente")
+  locked?: number; // copias bloqueadas en la sala; solo en el pedido al optimizador (RULES.md §5.11)
 }
 
 export type SlotMode = "miners" | "cells";

@@ -28,7 +28,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ortools.sat.python import cp_model
 
@@ -60,6 +60,11 @@ class MinerModel:
     name: str = ""
     level: int = 0
     next_id: str | None = None  # modelo que sale de mergear 2 copias de este
+    locked: int = 0     # copias bloqueadas en la sala: van sí o sí (RULES.md §5.11)
+
+
+class LockedOverCapError(ValueError):
+    """Los mineros bloqueados solos ya no entran (tope o celdas)."""
 
 
 @dataclass
@@ -143,12 +148,13 @@ def optimize(
 
     # --- saneo de entrada -------------------------------------------------
     valid = {
-        m.id: m
+        m.id: replace(m, locked=min(max(m.locked, 0), m.quantity))
         for m in models
         if m.quantity >= 0
         and m.power >= 0
         and m.width >= 1
-        and not (m.power == 0 and m.bonus_bp == 0)  # inútil: solo gasta slot
+        # inútil: solo gasta slot (salvo que esté bloqueado en la sala)
+        and not (m.power == 0 and m.bonus_bp == 0 and m.locked <= 0)
     }
 
     # prev[x] = modelo que, mergeando 2 copias, produce x (RULES.md §5.9)
@@ -202,6 +208,22 @@ def optimize(
             time.monotonic() - t_start, cells_mode, status, merges,
         )
 
+    locked = {m.id: m.locked for m in usable if m.locked > 0}
+    if locked:
+        locked_slots = sum(c * (by_id[i].width if cells_mode else 1) for i, c in locked.items())
+        if locked_slots > max_slots:
+            raise LockedOverCapError(
+                "Los mineros bloqueados ocupan más celdas de las disponibles."
+            )
+        locked_final = final_power(
+            sum(by_id[i].power * c for i, c in locked.items()),
+            sum(by_id[i].bonus_bp for i in locked),
+        )
+        if locked_final > cap:
+            raise LockedOverCapError(
+                "Los mineros bloqueados ya superan el tope: desbloquea alguno o elige un tope mayor."
+            )
+
     if not usable or max_slots <= 0 or cap <= 0:
         return finish({}, 1, "optimal")
 
@@ -214,7 +236,7 @@ def optimize(
     )
     if total_cells <= max_slots and not mergeable:
         # de un modelo sin poder solo cuenta el bonus: sobra 1 copia (menos mineros)
-        all_counts = {m.id: m.quantity if m.power > 0 else 1 for m in usable}
+        all_counts = {m.id: m.quantity if m.power > 0 else max(1, m.locked) for m in usable}
         all_raw = sum(by_id[i].power * c for i, c in all_counts.items())
         all_bonus = sum(by_id[i].bonus_bp for i in all_counts)
         if final_power(all_raw, all_bonus) <= cap:
@@ -251,7 +273,7 @@ def optimize(
         use: dict[str, cp_model.IntVar] = {}
         y: dict[str, cp_model.IntVar] = {}
         for m in usable:
-            u = model.new_int_var(0, slot_cap(m), f"use_{m.id}")
+            u = model.new_int_var(m.locked, slot_cap(m), f"use_{m.id}")
             b = model.new_bool_var(f"y_{m.id}")
             model.add(u >= 1).only_enforce_if(b)
             model.add(u == 0).only_enforce_if(b.negated())
@@ -468,15 +490,16 @@ def _lex_key(
 def _greedy(
     usable: list[MinerModel], target: int, max_slots: int, cells_mode: bool
 ) -> dict[str, int]:
-    """Llena con los mineros de mayor poder sin pasar del objetivo."""
-    counts: dict[str, int] = {}
-    cur_raw = 0
-    cur_bonus = 0
-    used = 0
-    opened: set[str] = set()
+    """Parte de los bloqueados y llena con los mineros de mayor poder sin
+    pasar del objetivo."""
+    counts: dict[str, int] = {m.id: m.locked for m in usable if m.locked > 0}
+    cur_raw = sum(m.power * m.locked for m in usable)
+    cur_bonus = sum(m.bonus_bp for m in usable if m.locked > 0)
+    used = sum(m.locked * (m.width if cells_mode else 1) for m in usable)
+    opened: set[str] = set(counts)
     for m in sorted(usable, key=lambda x: (-x.power, x.bonus_bp)):
         w = m.width if cells_mode else 1
-        for _ in range(m.quantity):
+        for _ in range(m.quantity - m.locked):
             if used + w > max_slots:
                 break
             add_bonus = m.bonus_bp if m.id not in opened else 0
@@ -554,7 +577,8 @@ def _trim_overshoot(
     by_id: dict[str, MinerModel], counts: dict[str, int], target: int
 ) -> dict[str, int]:
     """Red de seguridad: si el redondeo dejó F por encima del objetivo, quita
-    copias del minero de menor poder hasta cumplir. En la práctica no se dispara.
+    copias del minero de menor poder hasta cumplir, sin tocar las bloqueadas.
+    En la práctica no se dispara.
     """
     counts = dict(counts)
     while counts:
@@ -562,7 +586,10 @@ def _trim_overshoot(
         bonus = sum(by_id[mid].bonus_bp for mid in counts)
         if final_power(raw, bonus) <= target:
             return counts
-        weakest = min(counts, key=lambda mid: by_id[mid].power)
+        free = [mid for mid, c in counts.items() if c > by_id[mid].locked]
+        if not free:
+            return counts
+        weakest = min(free, key=lambda mid: by_id[mid].power)
         counts[weakest] -= 1
         if counts[weakest] == 0:
             del counts[weakest]

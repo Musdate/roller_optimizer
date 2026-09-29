@@ -35,7 +35,7 @@ from .models import (
     RoomImportItem,
     RoomImportResponse,
 )
-from .optimizer import MinerModel, OptimizeRequest, OptimizeResult, optimize
+from .optimizer import LockedOverCapError, MinerModel, OptimizeRequest, OptimizeResult, optimize
 from .paste import parse_inventory
 
 @asynccontextmanager
@@ -293,6 +293,7 @@ def start_optimize(body: OptimizeRequestBody) -> OptimizeJobStarted:
                 width=it.width,
                 name=it.name,
                 level=it.level,
+                locked=it.locked,
             )
             for it in body.inventory
         ]
@@ -380,6 +381,9 @@ def _run_job(
         res = optimize(models, req, progress=progress, stop=job.stop)
         job.result = _to_response(res, {m.id: m for m in models}, row_by_id)
         job.state = "done"
+    except LockedOverCapError as exc:
+        job.error = str(exc)
+        job.state = "error"
     except Exception:  # noqa: BLE001
         logger.exception("falló la optimización")
         job.error = "Ocurrió un error inesperado al optimizar. Inténtalo de nuevo."

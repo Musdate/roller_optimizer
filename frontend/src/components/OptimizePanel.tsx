@@ -60,6 +60,8 @@ export default function OptimizePanel() {
     setRooms,
   } = useStore();
   const maxCells = roomsToCells(rooms);
+  const lockedMiners = list.reduce((n, i) => n + (i.locked ?? 0), 0);
+  const lockedCells = list.reduce((n, i) => n + (i.locked ?? 0) * i.width, 0);
 
   const [leagues, setLeagues] = useState<League[] | null>(null);
   const [result, setResult] = useState<OptimizeResponse | null>(null);
@@ -328,6 +330,12 @@ export default function OptimizePanel() {
 
       {invalid && (
         <div className={!target.ok && target.pending ? "muted" : "err"}>{invalid}</div>
+      )}
+      {lockedMiners > 0 && (
+        <div className="muted" style={{ fontSize: 12 }}>
+          Se respetan {lockedMiners} minero{lockedMiners > 1 ? "s" : ""} bloqueado
+          {lockedMiners > 1 ? "s" : ""} en la sala ({lockedCells} celda{lockedCells > 1 ? "s" : ""}).
+        </div>
       )}
 
       <div className="row" style={{ marginTop: 12 }}>

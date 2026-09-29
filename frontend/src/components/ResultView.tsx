@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { bpToPct, formatPower, formatExactGh } from "../power";
-import { useStore } from "../store";
+import { useStore, ROOM1_CELLS } from "../store";
 import { useUndo } from "../undoState";
 import { totalsFor } from "../calc";
 import { errMsg, runOptimizeJob } from "../api";
@@ -395,9 +395,12 @@ export default function ResultView({
 
           <div className="row between" style={{ marginBottom: 6 }}>
             <h3 style={{ margin: 0 }}>Sala optimizada</h3>
-            <button className="tiny" onClick={useAsRoom}>
-              usar como sala
-            </button>
+            {/* la vista de sala modela solo la Sala 1 (RULES.md §5.7) */}
+            {request.max_slots <= ROOM1_CELLS && (
+              <button className="tiny" onClick={useAsRoom}>
+                usar como sala
+              </button>
+            )}
           </div>
 
 

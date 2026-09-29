@@ -526,6 +526,20 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
   box-shadow: 0 0 6px 1px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 .rack-slot .sprite-box { pointer-events: none; }
+/* Bloqueado (RULES.md §5.11): siempre entra en la optimización. */
+.rack-slot.filled.locked { position: relative; }
+.lock-badge {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  z-index: 3;
+  display: flex;
+  padding: 1px;
+  border-radius: 3px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--panel-2) 85%, transparent);
+  pointer-events: none;
+}
 /* En la sala, a diferencia de las tablas, la animación corre siempre (no
    solo al pasar el mouse): son los mineros "puestos", no una vista previa.
    Usa un ciclo propio de 4 frames (en vez de los 6 de la hoja completa):

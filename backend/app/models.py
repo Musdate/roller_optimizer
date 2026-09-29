@@ -34,6 +34,7 @@ class InventoryItem(BaseModel):
     bonus_bp: int = 0
     width: int = 1
     quantity: int = Field(ge=0)
+    locked: int = Field(default=0, ge=0)  # copias bloqueadas en la sala (RULES.md §5.11)
 
     _v_power = field_validator("power", "bonus_bp", mode="before")(
         staticmethod(_to_int)

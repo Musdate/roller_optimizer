@@ -173,7 +173,10 @@ Cualquier combinación dentro de la ventana es mejor que cualquiera fuera.
   un merge al "usar como sala". `0 ≤ simUsed ≤ quantity`. Existe para no
   contarlas dos veces: la app **simula** los movimientos; cuando se hacen en el
   juego, se vuelve a pegar el inventario y a sincronizar la sala.
-- Copias que tengo para optimizar: `(quantity − simUsed) + inRoom + planned`.
+- `plannedUsed` (interno, no se muestra) = lo mismo para **Nueva adquisición**:
+  copias planeadas que la simulación ya usó. `0 ≤ plannedUsed ≤ planned`.
+- Copias que tengo para optimizar:
+  `(quantity − simUsed) + inRoom + (planned − plannedUsed)`.
 - Persistido en `localStorage`. Migración de datos viejos (donde `quantity`
   incluía lo puesto): `quantity ← quantity − inRoom`, `simUsed = 0`.
 - Panel **"Mi inventario"**: filas con `quantity > 0`; columnas Minero, Poder,
@@ -193,7 +196,8 @@ Cualquier combinación dentro de la ventana es mejor que cualquiera fuera.
 - **Sacar de la sala** (`removeFromRoom()`: botón **"Quitar de la sala"** de la
   card de detalle, zona **"Suelta aquí"**, o soltarlo sobre "Mi inventario"):
   `inRoom −= 1`. Si había copias del inventario usadas (`simUsed > 0`), esa copia
-  deja de estar usada (`simUsed −= 1`); si no, la copia se elimina. **Nunca pasa
+  deja de estar usada (`simUsed −= 1`); si no, `plannedUsed −= 1` si había
+  copias planeadas usadas; si no, la copia se elimina. **Nunca pasa
   a "Mi inventario"**. Un modelo sin inventario, sin sala y sin planeado
   desaparece.
 - Arrastrar un minero de la sala **sobre otro minero de la sala** los
@@ -203,9 +207,9 @@ Cualquier combinación dentro de la ventana es mejor que cualquiera fuera.
   Soltarlo en una celda libre lo mueve ahí, como antes.
 - Botón **"vaciar la sala"** (icono de escoba, junto al de sincronizar en "Mi
   sala"): `clearRoom()` — vacía la sala de una: `inRoom = 0`, `simUsed = 0`,
-  `roomSlots` vacío. No toca el inventario. Sin confirmación.
+  `plannedUsed = 0`, `roomSlots` vacío. No toca el inventario. Sin confirmación.
 - **Sincronizar la sala real** ("recargar sala", §6): `inRoom` = lo que dice el
-  juego, `simUsed = 0` (la sala ya es la real). No toca el inventario.
+  juego, `simUsed = plannedUsed = 0` (la sala ya es la real). No toca el inventario.
 - **Exportar / importar** (botones arriba del todo, junto al título): guardan y
   restauran **todo** el estado en un JSON `{ version, rooms, inventory: [...] }`
   — cada ítem lleva `quantity`, `inRoom`, `simUsed` y `planned`, así que cubre
@@ -221,8 +225,11 @@ Cualquier combinación dentro de la ventana es mejor que cualquiera fuera.
   "Mi inventario", solo en el panel **"Nueva adquisición"**.
   Se añade desde el catálogo con el botón **"nuevo"**.
 - **Al optimizar**, el inventario que se envía usa copias efectivas
-  `(quantity − simUsed) + inRoom + planned` (`selectOptimizeList`, §5.5). O sea, el optimizador razona como
-  si ya tuvieras lo planeado.
+  `(quantity − simUsed) + inRoom + (planned − plannedUsed)` (`selectOptimizeList`,
+  §5.5). O sea, el optimizador razona como si ya tuvieras lo planeado.
+- **"usar como sala" no descuenta de Nueva adquisición**: `planned` no cambia;
+  las copias planeadas que usa la sala o un merge se cuentan en `plannedUsed`
+  (igual que `simUsed` para Mi inventario).
 
 ### 5.7 Resultado: diff contra la sala actual
 
@@ -276,19 +283,23 @@ Tras optimizar, el resultado se compara con la sala actual (`inRoom`):
   si la cantidad cambia. Los poderes y sus deltas van en la **unidad de la
   liga** (§5.9), con 3 decimales.
 - Botón **"usar como sala"**: `applyRoom(counts, merges)` — fija `inRoom =
-  count` de cada pick (0 para el resto). **No cambia "Mi inventario"**
-  (`quantity`): solo lleva la cuenta en `simUsed` (§5.5). Por modelo:
+  count` de cada pick (0 para el resto). **No cambia "Mi inventario" ni "Nueva
+  adquisición"** (`quantity`, `planned`): solo lleva la cuenta en `simUsed` y
+  `plannedUsed` (§5.5, §5.6). Por modelo:
   1. De las copias que **salen de la sala**, las que consume un merge van al
      merge; del resto, primero se liberan las que venían del inventario
-     (`simUsed −=`) y las demás se eliminan. Ninguna pasa a "Mi inventario".
+     (`simUsed −=`), luego las de lo planeado (`plannedUsed −=`) y las demás se
+     eliminan. Ninguna pasa a "Mi inventario".
   2. Lo que el merge consume y no salió de la sala se toma del inventario sin
-     usar (`simUsed +=`) y, si falta, de lo planeado (`planned −=`).
+     usar (`simUsed +=`) y, si falta, de lo planeado sin usar (`plannedUsed +=`).
   3. Las copias que **entran a la sala** salen, en orden, de lo que producen los
-     merges, del inventario sin usar (`simUsed +=`) y de lo planeado
-     (`planned −=`).
+     merges, del inventario sin usar (`simUsed +=`) y de lo planeado sin usar
+     (`plannedUsed +=`).
 
   Si la sala ya coincide con el resultado, en vez del botón se muestra
-  **"✓ es tu sala actual"**.
+  **"✓ es tu sala actual"**. **Solo con 1 sala**: si la optimización se hizo
+  con más de 1 sala (`max_slots > 96`), el botón no aparece, porque la vista de
+  sala modela solo la Sala 1 (§5.4).
 - La tabla del resultado permite **seleccionar 1 fila** (clic) solo para
   resaltarla; no tiene ningún efecto.
 
@@ -410,6 +421,28 @@ el frontend lo inicia, consulta su estado cada ~1 s y lo puede detener.
   pestaña), se detiene solo, igual que con el botón.
 - Solo corre **1 trabajo a la vez** en todo el servidor (§8); mientras tanto,
   iniciar otro devuelve 429.
+
+### 5.11 Mineros bloqueados
+
+- Al hacer clic en un minero de la sala, la tarjeta de info tiene
+  **"Bloquear"** / **"Desbloquear"**. Un minero bloqueado muestra un candado en
+  su celda. A mano se sigue pudiendo **arrastrar** (el bloqueo viaja con él) y
+  **quitar** de la sala (el bloqueo se pierde); lo que el bloqueo impide es que
+  la **optimización** lo saque.
+- Se guarda por copia puesta: celda inicial + id (`roomLocks`, persistido), así
+  un bloqueo nunca pasa a otro minero que caiga en esa celda. "Vaciar sala" los
+  borra. **"Recargar sala"** (sala real) **los mantiene** para los mineros que
+  siguen puestos en el juego: en la misma celda si ahí está ese minero; si no,
+  en otra copia suya sin bloquear; si ya no hay ninguna, se descarta. Si la
+  copia bloqueada deja de estar en la sala por otra vía, el bloqueo se descarta.
+- **Toda optimización los respeta**: cada modelo va con `locked` = copias
+  bloqueadas, y el solver exige `use[m] ≥ locked[m]` (§7.2). Así sus celdas
+  quedan descontadas del límite y su poder y su bonus entran siempre en la
+  sala. Una copia bloqueada no se puede mergear.
+- Si los bloqueados solos ya pasan el tope, no hay sala válida: la
+  optimización termina con un error que lo explica.
+- "usar como sala" (§5.7) mantiene los bloqueados (y su celda): al reacomodar
+  la sala nunca se recorta primero una copia bloqueada.
 
 ---
 
@@ -556,6 +589,7 @@ Se resuelve con **OR-Tools CP-SAT** (exacto, entero).
 
 use[m] + 2·k[m] ≤ qty[m] + k[prev(m)]     (copias: propias + merges que llegan
                                           − las que se mergean; sin merges, use ≤ qty)
+use[m] ≥ locked[m]                         (copias bloqueadas en la sala, §5.11)
 
 P_s = Σ_m use[m] · power_s[m]
 B   = Σ_m y[m] · bonus_bp[m]               (dedup: una vez por modelo)
@@ -709,7 +743,8 @@ despreciable (`~ 1e-10` relativo).
   "excluded_merges": [],                    // §5.9: ids de origen descartados
   "inventory": [
     { "id": "631f...", "name": "Leap, The Frogo", "level": 1,
-      "power": "105", "bonus_bp": 14, "width": 1, "quantity": 3 }
+      "power": "105", "bonus_bp": 14, "width": 1, "quantity": 3,
+      "locked": 0 }                          // §5.11 (opcional): copias bloqueadas, ≤ quantity
   ]
 }
 ```
