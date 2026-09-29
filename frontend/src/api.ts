@@ -62,23 +62,20 @@ export function fetchCatalogByIds(ids: string[]): Promise<CatalogMiner[]> {
   return send(`${BASE}/catalog/by-ids?${q}`).then((r) => json<CatalogMiner[]>(r));
 }
 
-/** Trae los mineros que falten. `full` re-baja todo el catálogo (~15-20
- *  min); sin eso son solo los nombres nuevos, que tardan segundos. */
-export function refreshCatalog(full = false): Promise<{
+/** Vuelve a bajar el catálogo en segundo plano (segundos). */
+export function refreshCatalog(): Promise<{
   ok: boolean;
   started: boolean;
   already_running: boolean;
   refreshing: boolean;
   missing_base: number;
-  full: boolean;
 }> {
-  const q = full ? "?full=true" : "";
-  return send(`${BASE}/catalog/refresh${q}`, { method: "POST" }).then((r) => json(r));
+  return send(`${BASE}/catalog/refresh`, { method: "POST" }).then((r) => json(r));
 }
 
 /** Chequeo rápido (~segundos) contra la API de RollerCoin: cuántos nombres
  *  de minero hay ahora vs. los que ya tenemos, y cuánto costaría traer lo
- *  que falta (`pending` nombres, `eta_seconds` estimados). */
+ *  que falta (`pending` nombres con algún modelo faltante, `eta_seconds`). */
 export function checkCatalog(): Promise<{
   remote_names: number;
   local_names: number;

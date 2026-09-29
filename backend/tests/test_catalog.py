@@ -35,94 +35,106 @@ def test_image_url_empty():
     assert _image_url(None, 1) == ""
 
 
-# --- puesta al día incremental (ver DEPLOY.md: disco efímero en Render) ---
+def test_image_url_satoshis_chest_keeps_apostrophe():
+    assert _image_url("satoshi’s_chest", 1) == (
+        "https://cdn.rollercoincalculator.app/miners/satoshi%E2%80%99s_chest.png?v=1"
+    )
 
 
-class _FakeClient:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
+# --- fetch desde /api/Miner (RULES.md §6) ---
 
 
-def _result(name: str, api_level: int) -> dict:
+def _api_miner(name: str, level: int, **kw) -> dict:
     return {
-        "resultItemId": f"{name}-{api_level}",
-        "resultItemName": name,
-        "resultItemLevel": api_level,
-        "resultItemPower": 100 * api_level,
-        "resultItemPercent": 0,
-        "resultItemWidth": 1,
-        "resultItemFileName": name.lower(),
-        "resultItemImageVersion": 1,
+        "id": f"{name}-{level}",
+        "name": name,
+        "fileName": name.lower(),
+        "imageVersion": 1,
+        "level": level,
+        "percent": 0,
+        "power": 1000 * (level + 1),
+        "width": 1,
+        **kw,
     }
 
 
-def _base(name: str) -> dict:
-    """Modelo de nivel 1 (base), como el que sale de `requiredItems`."""
-    return {
-        "id": f"{name}-base",
-        "name": name,
+def test_model_from_miner_mapea_niveles_y_campos():
+    m = cat._model_from_miner(_api_miner("Hamffindor", 0, percent=125, width=2))
+    assert m == {
+        "id": "Hamffindor-0",
+        "name": "Hamffindor",
         "api_level": 0,
         "level": 1,
-        "power": 50,
-        "bonus_bp": 0,
-        "width": 1,
-        "image": "",
+        "power": 1000,
+        "bonus_bp": 125,
+        "width": 2,
+        "image": "https://cdn.rollercoincalculator.app/miners/hamffindor.png?v=1",
     }
 
 
-def _patch_api(monkeypatch, results: list[dict], escalados: list[str]):
-    monkeypatch.setattr(cat.httpx, "Client", lambda *a, **k: _FakeClient())
-    monkeypatch.setattr(cat, "_fetch_results", lambda client: results)
-
-    def fake_ladder(client, name):
-        escalados.append(name)
-        return [
-            {
-                **_result(name, 1),
-                "requiredItems": [
-                    {"type": "miners", "itemId": f"{name}-base", "itemName": name,
-                     "level": 0, "power": 50, "percent": 0, "width": 1, "fileName": ""},
-                ],
-            }
-        ]
-
-    monkeypatch.setattr(cat, "_fetch_ladder", fake_ladder)
+def test_canonical_names_unifica_comillas_con_el_nivel_mas_alto():
+    rows = [
+        cat._model_from_miner(_api_miner("King's Legacy", 0)),
+        cat._model_from_miner(_api_miner("King’s Legacy", 1)),
+        cat._model_from_miner(_api_miner("King’s Legacy", 5)),
+    ]
+    assert {m["name"] for m in cat._canonical_names(rows)} == {"King’s Legacy"}
 
 
-def test_fetch_all_solo_escala_los_nombres_sin_base(monkeypatch):
-    escalados: list[str] = []
-    _patch_api(monkeypatch, [_result("Nuevo", 1)], escalados)
-    out = cat._fetch_all(previous=[_base("Viejo"), cat._model_from_result(_result("Viejo", 1))])
-    assert escalados == ["Nuevo"]
-    assert {m["name"] for m in out} == {"Viejo", "Nuevo"}
+class _Resp:
+    def __init__(self, body: dict) -> None:
+        self._body = body
+
+    def json(self) -> dict:
+        return self._body
 
 
-def test_fetch_all_full_reescala_todo(monkeypatch):
-    escalados: list[str] = []
-    _patch_api(monkeypatch, [_result("Nuevo", 1)], escalados)
-    cat._fetch_all(previous=[_base("Viejo"), cat._model_from_result(_result("Viejo", 1))], full=True)
-    assert sorted(escalados) == ["Nuevo", "Viejo"]
+def _patch_pages(monkeypatch, pages: list[list[dict] | None]):
+    """`None` en una página = el pedido falló (agotó reintentos)."""
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def fake_get(client, path, params):
+        assert path == "/Miner"
+        i = params["PageRequest.PageIndex"]
+        if pages[i] is None:
+            return None
+        return _Resp({
+            "items": pages[i],
+            "count": sum(len(p or []) for p in pages),
+            "hasNext": i < len(pages) - 1,
+        })
+
+    monkeypatch.setattr(cat, "_new_client", lambda: _FakeClient())
+    monkeypatch.setattr(cat, "_get", fake_get)
 
 
-def test_fetch_all_max_names_corta_el_paso_lento(monkeypatch):
-    escalados: list[str] = []
-    results = [_result(f"N{i}", 1) for i in range(3)]
-    _patch_api(monkeypatch, results, escalados)
-    out = cat._fetch_all(previous=[], max_names=2)
-    assert escalados == []                      # no hizo la parte lenta
-    assert cat.last_refresh_skipped == 3
-    assert len(out) == 3                        # pero el listado masivo sí se guarda
+def test_fetch_all_pagina_y_mezcla_con_lo_previo(monkeypatch):
+    _patch_pages(monkeypatch, [[_api_miner("A", 0), _api_miner("A", 1)], [_api_miner("Slyhamrin", 0)]])
+    viejo = cat._model_from_miner(_api_miner("Viejo", 0))
+    progreso: list[int] = []
+    total: list[int] = []
+    out = cat._fetch_all(
+        previous=[viejo],
+        on_total=total.append,
+        on_progress=lambda done, batch: progreso.append(done),
+    )
+    assert {m["id"] for m in out} == {"A-0", "A-1", "Slyhamrin-0", "Viejo-0"}
+    assert total == [3]
+    assert progreso == [2, 3]
+    assert not cat.last_refresh_incomplete
 
 
-def test_fetch_all_max_names_no_molesta_si_falta_poco(monkeypatch):
-    escalados: list[str] = []
-    _patch_api(monkeypatch, [_result("Nuevo", 1)], escalados)
-    cat._fetch_all(previous=[], max_names=50)
-    assert escalados == ["Nuevo"]
-    assert cat.last_refresh_skipped == 0
+def test_fetch_all_pagina_fallida_no_borra_nada(monkeypatch):
+    _patch_pages(monkeypatch, [[_api_miner("A", 0)], None])
+    viejo = cat._model_from_miner(_api_miner("Viejo", 0))
+    out = cat._fetch_all(previous=[viejo])
+    assert {m["id"] for m in out} == {"A-0", "Viejo-0"}
+    assert cat.last_refresh_incomplete
 
 
 def test_eta_seconds_crece_con_las_pausas_por_rafaga():

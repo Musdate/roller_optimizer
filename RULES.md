@@ -415,24 +415,21 @@ el frontend lo inicia, consulta su estado cada ~1 s y lo puede detener.
 
 ## 6. Datos de la API
 
-Fuente: `https://api.rollercoincalculator.app/api/Merges`
-(paginado; `PageRequest.PageIndex`, `PageRequest.PageSize` hasta 1000; filtro
-`Name`) + `https://api.rollercoincalculator.app/api/Merges/get-by-miner-name`
-(un llamado por nombre, devuelve toda la escalera + `requiredItems`).
+Fuente: `https://api.rollercoincalculator.app/api/Miner` (paginado;
+`PageRequest.PageIndex`, `PageRequest.PageSize` hasta 1000; filtro `Name`).
+Trae **todos** los modelos de minero (1 ítem por `(nombre, nivel)`), también
+los que no tienen merge (mineros de tienda/eventos de un solo nivel, p. ej.
+`Slyhamrin`, `Hamffindor`). Con 1000 por página son ~9 pedidos.
 
-### 6.0 Niveles: la API está desfasada +1
+Antes se usaba `/api/Merges` + `/api/Merges/get-by-miner-name` (1 llamada por
+nombre, ~15–20 min): solo cubría mineros crafteables y tardaba en publicar los
+nuevos. `/api/Miner` contiene todos esos modelos con los mismos `id` y stats.
 
-La API es de **merges**, así que su `resultItemLevel` **arranca en 1, pero ese
-"1" es el nivel 2 del juego**. El **nivel base** (nivel 1 real del juego) nunca
-aparece como `resultItem`: solo vive dentro de `requiredItems` del recipe de
-nivel API 1 (como ingrediente `type: "miners"`, `level: 0`).
+### 6.0 Niveles: la API cuenta desde 0
 
-Por eso el catálogo:
-
-1. toma los resultados del listado masivo (`api_level` 1..5);
-2. por cada nombre llama `get-by-miner-name` y extrae de `requiredItems` los
-   mineros `type:"miners"` que falten (principalmente el `level: 0` base);
-3. **expone `level = api_level + 1`** → base = **1**, api 1 = 2, … api 5 = **6**.
+El `level` de la API **arranca en 0** (0 = nivel base del juego). El catálogo
+guarda `api_level` = ese valor y **expone `level = api_level + 1`** → base =
+**1**, api 1 = 2, … api 5 = **6**.
 
 Iconos de nivel: `frontend/public/miner-levels/level_<N>.webp` para `N = 1..6`
 (numerales romanos I–VI; todos con ratio 1.38, se escalan por `height`). Van a la
@@ -449,82 +446,77 @@ Ejemplo `10k Crust`:
 | 5 | 4 | 40 000 000 | 22.00% |
 | 6 | 5 | 100 000 000 | 45.00% |
 
-Clave de deduplicación de bonus: el `id` del ítem (`resultItemId` para 1..5,
-`itemId` del `requiredItem` para el base). Cada `(nombre, nivel)` tiene un `id`
-único y estable.
+Clave de deduplicación de bonus: el `id` del ítem. Cada `(nombre, nivel)` tiene
+un `id` único y estable (excepción: `Golden Palace` trae dos `id` en los niveles
+4 y 6, con stats distintos; se conservan los dos).
 
 Campos usados de cada item:
 
 | Campo API | Uso |
 |---|---|
-| `resultItemId` / `requiredItems[].itemId` | clave del modelo (dedup) |
-| `resultItemName` | nombre |
-| `resultItemLevel` | nivel API (1–5). Nivel de juego = `+1` (ver §6.0) |
-| `resultItemPower` | **poder bruto** del minero, en **`GH/s`** (entero exacto). Ej: `10k Crust` L1 = `2000000` → 2.000.000 GH/s = 2 PH/s. |
-| `resultItemPercent` | **bonus en bp**. `fracción = resultItemPercent / 10000`. Ej: `14 → 0.14%`, `6000 → 60%`, `20000 → 200%`. |
-| `resultItemWidth` | celdas que ocupa (1 o 2) |
-| `resultItemFileName`, `resultItemImageVersion` | imagen: `cdn.rollercoincalculator.app/miners/<fileName>.png?v=<version>` |
+| `id` | clave del modelo (dedup) |
+| `name` | nombre (normalizado, ver abajo) |
+| `level` | nivel API (0–5). Nivel de juego = `+1` (ver §6.0) |
+| `power` | **poder bruto** del minero, en **`GH/s`** (entero exacto). Ej: `10k Crust` nivel 2 = `2000000` → 2.000.000 GH/s = 2 PH/s. |
+| `percent` | **bonus en bp**. `fracción = percent / 10000`. Ej: `14 → 0.14%`, `6000 → 60%`, `20000 → 200%`. |
+| `width` | celdas que ocupa (1 o 2) |
+| `fileName`, `imageVersion` | imagen: `cdn.rollercoincalculator.app/miners/<fileName>.png?v=<version>` |
+
+⚠️ **Comillas en `name`**: para algunos mineros la API mezcla la comilla recta y
+la tipográfica entre niveles (`King's Legacy` nivel base, `King’s Legacy` el
+resto). Como el catálogo agrupa por nombre (siguiente nivel de un merge, nivel
+base faltante), `_canonical_names()` agrupa por nombre con las comillas
+unificadas y le pone a todo el grupo el nombre del **nivel más alto**.
 
 ⚠️ **Apóstrofos en `fileName`**: el CDN quita los apóstrofos del nombre
-(`Captain's Fortune` → `captains_fortune.png`), pero para los niveles de *merge*
-la API a veces devuelve `resultItemFileName` con la comilla tipográfica `’`
-intacta → URL 404. `_image_url()` los saca (`'` `’` `ʼ` `` ` ``). Afectaba a 4
-mineros (Captain's Fortune, Devil's Ember, Hashbeard's Ship, King's Legacy); el
-seed se parcheó en sitio.
+(`Captain's Fortune` → `captains_fortune.png`), pero la API a veces devuelve
+`fileName` con la comilla tipográfica `’` intacta → URL 404. `_image_url()` los
+saca (`'` `’` `ʼ` `` ` ``). Afecta a Captain's Fortune, Devil's Ember,
+Hashbeard's Ship y King's Legacy.
 
 **Excepción:** algunos archivos del CDN **sí conservan** la comilla tipográfica.
-Verificado contra el CDN para los 77 nombres con comilla del catálogo: solo
-**Corsair's Oath** (`corsair’s_oath.png`, URL-encoded `corsair%E2%80%99s_oath`).
-Van en `_CDN_KEEPS_APOSTROPHE` y `_image_url()` los devuelve así en vez de sacar
-la comilla.
+Verificado contra el CDN: **Corsair's Oath** (`corsair’s_oath.png`) y
+**Satoshi's Chest** (`satoshi’s_chest.png`), URL-encoded (`%E2%80%99`). Van en
+`_CDN_KEEPS_APOSTROPHE` y `_image_url()` los devuelve así en vez de sacar la
+comilla.
 
 **Las imágenes son sprite sheets** (los mineros están animados en el juego):
 6 frames en horizontal, cada frame de `58·width × 50` px
 (width-1 → `348×50`, width-2 → `696×50`). El componente `MinerSprite` del
 frontend muestra 1 frame y anima con `steps(6)`.
 
-Observaciones verificadas (2026-09-03):
+Observaciones verificadas (2026-09-29):
 
-- ~6990 recetas (result items), ~1444 nombres. Con los base: **~7461 modelos**,
-  niveles de juego 1–6.
-- Cada `id` es único y sus stats son consistentes entre recetas.
+- **8930 modelos**, niveles de juego 1–6. Los 7461 del catálogo anterior
+  (basado en merges) están todos, con los mismos `id` y stats.
 - El escalado de bonus `/ 10000` está confirmado en el código del calculador
   (`RoomPowerSimulator`: `globalBonusPercent / 10000`).
 
 ### 6.1 Caché y rate-limit
 
-- La API **limita agresivamente (429)**. El fetch usa: `_CONCURRENCY = 1`,
-  limitador global `~3 req/s`, pausa de 20 s cada 60 pedidos y backoff
-  exponencial que honra `Retry-After`. Carga completa (~1450
-  `get-by-miner-name`): **~15–20 min**.
+- La API **limita agresivamente (429)**. El fetch usa: limitador global
+  `~3 req/s`, pausa de 20 s cada 60 pedidos y backoff exponencial que honra
+  `Retry-After`. Carga completa (~9 páginas): **segundos**.
 - El repo trae un **snapshot** en `backend/app/data/catalog_seed.json` que se usa
-  al arrancar (instantáneo). El backend cachea en `backend/.cache/catalog.json`
-  por 7 días.
+  al arrancar (instantáneo; se regenera con `backend/scripts/build_seed.py`). El
+  backend cachea en `backend/.cache/catalog.json` por 7 días.
 - **`refresh()` hace merge**: parte de lo que ya había, así que un refresh
-  parcial (algún 429 que no se recuperó) **nunca borra** datos previos.
-- **`refresh()` es incremental**: solo escala los nombres que no tienen su nivel
-  base. Con el seed completo eso son los mineros que RollerCoin agregó desde el
-  snapshot (~1 nombre por día) → **segundos**, no minutos. `refresh(full=True)`
-  re-escala los ~1450 nombres y es la única pasada larga.
+  parcial (una página que no se recuperó de un 429) **nunca borra** datos previos.
 - **Puesta al día automática al arrancar** (`autosync_async`, lanzada desde el
-  `lifespan` de FastAPI): hace un `refresh()` incremental con tope
-  `_AUTOSYNC_MAX_NAMES = 50`. Si faltan más nombres que ese tope, no hace el
-  paso lento (deja el listado masivo mezclado y nada más): esa descarga la
-  decide el usuario. Existe porque en un hosting con **disco efímero** (Render
-  duerme el servicio por inactividad y levanta un contenedor nuevo) se pierde
-  `.cache/catalog.json` y el catálogo retrocede al seed de la imagen.
+  `lifespan` de FastAPI): un `refresh()` en segundo plano. Existe porque en un
+  hosting con **disco efímero** (Render duerme el servicio por inactividad y
+  levanta un contenedor nuevo) se pierde `.cache/catalog.json` y el catálogo
+  retrocede al seed de la imagen.
 - **No** se recarga sola por antigüedad. `/api/health` informa `catalog_stale` y
-  `catalog_missing_base` (nombres sin su nivel 1 → fetch incompleto). El usuario
-  actualiza con `POST /api/catalog/refresh` (botón "actualizar" en la UI, que
-  primero chequea con `/api/catalog/check` y solo trae si falta algo) o fuerza
-  la pasada larga con `?full=true` ("recarga completa").
+  `catalog_missing_base` (nombres sin su nivel 1). El usuario actualiza con el
+  botón "actualizar": primero `GET /api/catalog/check` (cuántos modelos faltan)
+  y, si falta algo, `POST /api/catalog/refresh`.
 
 ### 6.2 Limitaciones conocidas
 
-- El endpoint `Merges` solo trae mineros **crafteables (merge)**. Mineros de
-  tienda / eventos que no se craftean pueden faltar.
-- Mitigación: el frontend permite agregar **mineros personalizados** a mano
-  (nombre, poder, bonus, width).
+- Un minero que RollerCoin acaba de lanzar puede tardar en aparecer en la API
+  de terceros. Mitigación: el frontend permite agregar **mineros
+  personalizados** a mano (nombre, poder, bonus, width).
 
 ### 6.3 Ligas
 

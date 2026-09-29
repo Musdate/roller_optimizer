@@ -56,18 +56,9 @@ vuelve al seed que viene en la imagen.
 
 No hace falta disco ni storage externo: al arrancar, el backend hace una
 **puesta al día automática** (`catalog.autosync_async()`, ver RULES.md §6.1) que
-trae solo los nombres que falten — con el seed completo son los pocos mineros
-que RollerCoin agregó desde el snapshot, cuesta segundos y ocurre en segundo
-plano. Si faltan más de 50 nombres no lo hace solo: eso ya es la pasada larga y
-la dispara el usuario con "recarga completa" en la UI.
+vuelve a bajar el catálogo (~9 páginas de `/api/Miner`, segundos) en segundo
+plano y lo mezcla con el seed.
 
-Dos consecuencias prácticas:
-
-- Una **recarga completa** (~15-20 min) no sobrevive al spin-down: si nadie usa
-  la app mientras corre, Render duerme el servicio y la descarga se pierde a
-  medias (lo ya bajado se conserva por el *merge*, pero hay que repetirla). Si
-  necesitas una, deja la pestaña abierta — el polling de `/api/health` alcanza
-  como tráfico — o hazla local y versiona el seed (abajo).
 - Para que el seed de la imagen no envejezca, cada tanto corre
   `python scripts/build_seed.py` (cwd = `backend/`) y commitea
   `app/data/catalog_seed.json`.

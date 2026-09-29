@@ -142,7 +142,7 @@ export default function App() {
           {progressTotal > 0 ? (
             <>
               {" "}
-              — <b>{progressDone}</b> de <b>{progressTotal}</b> mineros nuevos cargados
+              — <b>{progressDone}</b> de <b>{progressTotal}</b> mineros cargados
             </>
           ) : (
             missingBase !== null &&

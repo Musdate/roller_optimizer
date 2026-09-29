@@ -188,25 +188,21 @@ def get_catalog_by_ids(ids: str = Query(default="")) -> list[CatalogMinerOut]:
 
 
 @app.post("/api/catalog/refresh")
-def refresh_catalog(full: bool = Query(default=False)) -> dict:
-    """Trae los mineros que falten. `full=true` re-baja todo el catálogo
-    (~15-20 min); sin eso solo escala los nombres sin nivel base, que con el
-    seed completo son unos pocos y tardan segundos."""
-    started = catalog.refresh_async(full=full)
+def refresh_catalog() -> dict:
+    """Vuelve a bajar el catálogo (segundos) y lo mezcla con el actual."""
+    started = catalog.refresh_async()
     return {
         "ok": True,
         "started": started,
         "already_running": not started,
         "refreshing": catalog.refreshing,
         "missing_base": catalog.missing_base,
-        "full": full,
     }
 
 
 @app.get("/api/catalog/check")
 def check_catalog() -> dict:
-    """Chequeo rápido (~segundos, no ~15 min) de cuántos mineros nuevos hay
-    en la API de RollerCoin antes de decidir si vale la pena recargar todo."""
+    """Cuántos mineros nuevos hay en la API de RollerCoin, sin tocar el catálogo."""
     try:
         return catalog.check_for_updates()
     except Exception as exc:  # noqa: BLE001

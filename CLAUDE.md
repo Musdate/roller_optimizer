@@ -87,15 +87,15 @@ CORS real).
   objetivo hacia abajo → nunca se pasa del objetivo real); recálculo final con
   enteros exactos de Python + `_trim_overshoot` como red de seguridad.
 - **`app/catalog.py`** — catálogo de mineros desde `api.rollercoincalculator.app`
-  (endpoint de *merges*). **Los niveles de la API están desfasados +1**: su nivel
-  1 es el nivel 2 del juego, y el nivel base sale de los `requiredItems` (ver
-  RULES.md §6.0). El repo trae un **snapshot completo** en
-  `app/data/catalog_seed.json` (se versiona, ~1.8 MB) que se usa al arrancar. La
-  API limita agresivamente; una recarga completa (`?full=true`) tarda ~15-20 min.
-  `refresh()` normal es **incremental**: solo escala los nombres sin nivel base,
-  o sea lo que RollerCoin agregó desde el seed (segundos). **No se recarga sola
-  por antigüedad**, pero sí hace una **puesta al día al arrancar**
-  (`autosync_async` desde el `lifespan` de `main.py`, tope 50 nombres): el disco
+  (`/api/Miner`, paginado: todos los modelos, también los que no tienen merge;
+  ~9 pedidos, segundos). **El `level` de la API arranca en 0** (= nivel base);
+  exponemos `level = api_level + 1` (RULES.md §6.0). La API mezcla comillas
+  rectas y tipográficas entre niveles de un mismo minero: `_canonical_names()`
+  las unifica. El repo trae un **snapshot completo** en
+  `app/data/catalog_seed.json` (se versiona, ~2 MB; `scripts/build_seed.py`)
+  que se usa al arrancar. **No se recarga sola por antigüedad**, pero sí hace
+  una **puesta al día al arrancar** (`autosync_async` desde el `lifespan` de
+  `main.py`): el disco
   puede ser efímero (Render recicla el contenedor al dormirse) y sin eso el
   catálogo retrocede al seed en cada arranque. Siempre hace *merge* (un refresh
   parcial nunca borra datos). Caché en `backend/.cache/catalog.json` (7 días,

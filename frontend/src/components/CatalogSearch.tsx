@@ -9,17 +9,12 @@ import { bpToPct, formatPower } from "../power";
 import MinerSprite from "./MinerSprite";
 import type { CatalogMiner } from "../types";
 
-// "actualizar" chequea contra la API de RollerCoin y, si falta algo, lo trae
-// en el acto: el backend saltea los nombres que ya tienen su nivel base, así
-// que son unos pocos pedidos y termina en segundos. El chequeo pega directo a
+// "actualizar" chequea contra la API de RollerCoin y, si falta algo, vuelve a
+// bajar el catálogo (unas pocas páginas, segundos). El chequeo pega directo a
 // la API sin ningún candado del lado del backend -- mismo host que ya nos
 // devolvió 429 al sincronizar la sala real con clicks seguidos, así que va
-// con cooldown. "recarga completa" (re-baja los ~1400 nombres) ya está
-// protegida server-side (un segundo click mientras hay una descarga en curso
-// es un no-op inmediato) -- ahí el cooldown es solo para prolijidad de UI, y
-// 15s alcanza de sobra (coincide con el intervalo del polling de /api/health).
+// con cooldown.
 const CHECK_COOLDOWN_MS = 30_000;
-const REFRESH_COOLDOWN_MS = 15_000;
 
 const etaText = (seconds: number): string =>
   seconds < 90 ? `${Math.max(1, seconds)} s` : `${Math.round(seconds / 60)} min`;
@@ -55,7 +50,6 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
   const setDraggingWidth = useDragState((s) => s.setWidth);
   const debounce = useRef<number>();
   const checkCooldown = useCooldown(CHECK_COOLDOWN_MS);
-  const refreshCooldown = useCooldown(REFRESH_COOLDOWN_MS);
 
   useEffect(() => {
     window.clearTimeout(debounce.current);
@@ -82,7 +76,7 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
               title={
                 checkCooldown.active
                   ? `Espera ${checkCooldown.secondsLeft}s antes de volver a buscar`
-                  : "Busca mineros nuevos en RollerCoin y trae solo los que falten (unos segundos)"
+                  : "Busca mineros nuevos en RollerCoin y los trae (unos segundos)"
               }
               onClick={() => {
                 setErr(null);
@@ -119,42 +113,6 @@ export default function CatalogSearch({ loading: catalogBusy = false }: { loadin
             </button>
             {checkCooldown.active && (
               <CooldownBar durationMs={CHECK_COOLDOWN_MS} cooldownKey={checkCooldown.key} />
-            )}
-          </div>
-          <div className="cooldown-wrap">
-            <button
-              className="tiny"
-              disabled={loading || catalogBusy || refreshCooldown.active}
-              title={
-                catalogBusy
-                  ? "Ya hay una descarga del catálogo en curso"
-                  : refreshCooldown.active
-                    ? `Espera ${refreshCooldown.secondsLeft}s antes de volver a recargar`
-                    : "Vuelve a bajar todo el catálogo de RollerCoin (~15 min, en segundo plano). Normalmente alcanza con “actualizar”"
-              }
-              onClick={() => {
-                if (!confirm("Recargar el catálogo completo desde RollerCoin.\nCorre en segundo plano y tarda ~15 min.\nPara traer solo los mineros nuevos usa “actualizar”. ¿Continuar?")) return;
-                setErr(null);
-                refreshCatalog(true)
-                  .then((r) => {
-                    setRefreshMsg(
-                      r.already_running
-                        ? "Ya había una descarga en curso."
-                        : "Descarga iniciada. El progreso aparece en el aviso de arriba.",
-                    );
-                    // el loop de poll de App puede haberse detenido si el
-                    // catálogo ya estaba al día -- esto lo despierta ya
-                    // mismo para que el aviso de progreso aparezca.
-                    useCatalogPoll.getState().requestPoll();
-                  })
-                  .catch((e) => setErr(errMsg(e)))
-                  .finally(() => refreshCooldown.trigger());
-              }}
-            >
-              {catalogBusy ? "descargando…" : "recarga completa"}
-            </button>
-            {refreshCooldown.active && (
-              <CooldownBar durationMs={REFRESH_COOLDOWN_MS} cooldownKey={refreshCooldown.key} />
             )}
           </div>
         </div>

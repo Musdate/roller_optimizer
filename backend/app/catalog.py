@@ -1,14 +1,8 @@
 """Catálogo de mineros desde la API pública de rollercoincalculator.
 
-Ojo con los niveles (ver RULES.md §6): la API es de *merges*, su `resultItemLevel`
-arranca en 1 pero ese "1" es en realidad el **nivel 2** del juego. El **nivel base**
-(nivel 1 real) nunca aparece como resultado: solo vive dentro de `requiredItems`
-del recipe de nivel 1. Por eso:
-
-  1. traemos los resultados (niveles API 1..5) del listado masivo `/api/Merges`;
-  2. traemos los mineros base con `/api/Merges/get-by-miner-name` (1 llamada por
-     nombre, en paralelo) y sacamos los `requiredItems` de tipo "miners";
-  3. `level` que exponemos = `api_level + 1`  → base = 1, API 1 = 2, ... API 5 = 6.
+Fuente: `/api/Miner` (RULES.md §6), paginado, 1 ítem por (nombre, nivel),
+incluidos los mineros sin merge. Su `level` arranca en 0 (= nivel base del
+juego) -> `level` que exponemos = `api_level + 1` (base = 1, ... API 5 = 6).
 """
 
 from __future__ import annotations
@@ -16,7 +10,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
 
@@ -30,21 +23,12 @@ _SEED_FILE = Path(__file__).resolve().parent / "data" / "catalog_seed.json"
 _TTL_SECONDS = 7 * 24 * 3600
 
 # La API tolera ~5 req/s en 1 conexión hasta ~80 seguidas y después empieza a
-# colgar/timeout (no manda 429 limpio). Estrategia: 1 sola conexión, ~3 req/s,
-# y una pausa cada _BURST requests. refresh() hace merge y saltea nombres que ya
-# tienen su nivel base -> reintentar completa lo que falte.
-_CONCURRENCY = 1
+# colgar/timeout (no manda 429 limpio). Estrategia: ~3 req/s y una pausa cada
+# _BURST requests.
 _MAX_RPS = 3.0
 _MAX_RETRIES = 5
 _BURST = 60
 _BURST_PAUSE = 20.0
-
-# Tope de nombres que la puesta al día automática del arranque se permite
-# escalar. Con el seed completo aparecen ~1 nombre nuevo por día, así que un
-# arranque normal escala un puñado (segundos). Si faltan más que esto el
-# catálogo está realmente incompleto: eso son 15-20 min y lo dispara el
-# usuario desde la UI, no el arranque.
-_AUTOSYNC_MAX_NAMES = 50
 
 
 def _eta_seconds(requests: int) -> int:
@@ -79,7 +63,10 @@ _limiter = _RateLimiter(_MAX_RPS)
 _FNAME_STRIP = str.maketrans({"'": "", "’": "", "ʼ": "", "`": ""})
 # Excepciones: archivos que en el CDN SÍ conservan la comilla tipográfica
 # (verificado contra el CDN, RULES.md §6). Clave = nombre ya saneado.
-_CDN_KEEPS_APOSTROPHE = {"corsairs_oath": "corsair%E2%80%99s_oath"}
+_CDN_KEEPS_APOSTROPHE = {
+    "corsairs_oath": "corsair%E2%80%99s_oath",
+    "satoshis_chest": "satoshi%E2%80%99s_chest",
+}
 
 
 def _image_url(file_name: str | None, version: int | None) -> str:
@@ -90,61 +77,34 @@ def _image_url(file_name: str | None, version: int | None) -> str:
     return f"{_CDN}/miners/{file_name}.png" + (f"?v={version}" if version else "")
 
 
-def _model_from_result(it: dict) -> dict:
-    api_level = int(it["resultItemLevel"])
+def _model_from_miner(it: dict) -> dict:
+    api_level = int(it.get("level") or 0)
     return {
-        "id": it["resultItemId"],
-        "name": it["resultItemName"],
+        "id": it["id"],
+        "name": it["name"],
         "api_level": api_level,
         "level": api_level + 1,
-        "power": int(it["resultItemPower"]),        # GH/s
-        "bonus_bp": int(it["resultItemPercent"]),   # bp (10000 = 100%)
-        "width": int(it.get("resultItemWidth") or 1),
-        "image": _image_url(it.get("resultItemFileName"), it.get("resultItemImageVersion")),
+        "power": int(it["power"]),               # GH/s
+        "bonus_bp": int(it.get("percent") or 0),  # bp (10000 = 100%)
+        "width": int(it.get("width") or 1),
+        "image": _image_url(it.get("fileName"), it.get("imageVersion")),
     }
 
 
-def _model_from_required(ri: dict, name: str | None = None) -> dict | None:
-    # `name` = nombre canónico del recipe padre. La API a veces devuelve el
-    # `itemName` del ingrediente con la comilla distinta (recta vs. tipográfica),
-    # lo que rompe el agrupado por nombre.
-    if ri.get("type") != "miners" or ri.get("power") is None:
-        return None
-    api_level = int(ri.get("level") or 0)
-    return {
-        "id": ri["itemId"],
-        "name": name or ri.get("itemName", ""),
-        "api_level": api_level,
-        "level": api_level + 1,
-        "power": int(ri["power"]),
-        "bonus_bp": int(ri.get("percent") or 0),
-        "width": int(ri.get("width") or 1),
-        "image": _image_url(ri.get("fileName"), ri.get("imageVersion")),
-    }
+_QUOTES = str.maketrans({"’": "'", "ʼ": "'", "`": "'"})
 
 
-def _fetch_results(client: httpx.Client) -> list[dict]:
-    out: list[dict] = []
-    index = 0
-    while True:
-        resp = _get(
-            client,
-            "/Merges",
-            {"PageRequest.PageIndex": index, "PageRequest.PageSize": _PAGE_SIZE},
-        )
-        if resp is None:
-            break
-        body = resp.json()
-        items = body["items"] if isinstance(body, dict) else body
-        if not items:
-            break
-        out.extend(items)
-        if isinstance(body, dict) and not body.get("hasNext"):
-            break
-        index += 1
-        if index > 100:
-            break
-    return out
+def _canonical_names(miners: list[dict]) -> list[dict]:
+    """La API mezcla comilla recta y tipográfica entre niveles de un mismo
+    minero ("King's Legacy" base, "King’s Legacy" el resto) y el catálogo
+    agrupa por nombre: a todo el grupo se le pone el nombre de su nivel más
+    alto (RULES.md §6)."""
+    canon: dict[str, tuple[int, str]] = {}
+    for m in miners:
+        key = m["name"].translate(_QUOTES)
+        if key not in canon or m["api_level"] > canon[key][0]:
+            canon[key] = (m["api_level"], m["name"])
+    return [{**m, "name": canon[m["name"].translate(_QUOTES)][1]} for m in miners]
 
 
 _req_count = 0
@@ -176,84 +136,73 @@ def _get(client: httpx.Client, path: str, params: dict) -> httpx.Response | None
     return None
 
 
-def _fetch_ladder(client: httpx.Client, name: str) -> list[dict]:
-    r = _get(client, "/Merges/get-by-miner-name", {"minerName": name})
-    if r is None:
-        return []
-    try:
-        return r.json() or []
-    except json.JSONDecodeError:
-        return []
+def _fetch_miners(
+    client: httpx.Client,
+    on_total: Callable[[int], None] | None = None,
+    on_page: Callable[[list[dict]], None] | None = None,
+) -> tuple[list[dict], bool]:
+    """Todas las páginas de `/Miner` como modelos. Devuelve (modelos, completo);
+    `completo` es False si alguna página no se pudo traer. `on_total(n)` recibe
+    el total de modelos que anuncia la API (con la 1ª página) y `on_page` los
+    modelos de cada página."""
+    out: list[dict] = []
+    index = 0
+    while True:
+        resp = _get(
+            client,
+            "/Miner",
+            {"PageRequest.PageIndex": index, "PageRequest.PageSize": _PAGE_SIZE},
+        )
+        if resp is None:
+            return out, False
+        body = resp.json()
+        if index == 0 and on_total:
+            on_total(int(body.get("count") or 0))
+        page = [_model_from_miner(it) for it in body.get("items") or []]
+        out.extend(page)
+        if on_page:
+            on_page(page)
+        if not page or not body.get("hasNext"):
+            return out, True
+        index += 1
+        if index > 100:
+            return out, True
 
 
-# nº de nombres cuyo fetch de escalera falló en el último refresh
-last_refresh_failures = 0
-# nº de nombres que el último refresh dejó sin escalar por `max_names`
-last_refresh_skipped = 0
+def _new_client() -> httpx.Client:
+    return httpx.Client(timeout=60, headers={"User-Agent": "optimizador-roller/0.1"})
+
+
+# True si el último refresh no pudo traer todas las páginas
+last_refresh_incomplete = False
 
 
 def _fetch_all(
     previous: list[dict] | None = None,
     on_total: Callable[[int], None] | None = None,
     on_progress: Callable[[int, list[dict]], None] | None = None,
-    full: bool = False,
-    max_names: int | None = None,
 ) -> list[dict]:
-    """`on_total(n)` se llama una vez, apenas se sabe cuántos NOMBRES faltan
-    por escalar (después del listado masivo, antes del loop lento).
-    `on_progress(done, batch)` se llama después de cada nombre resuelto, con
-    el conteo acumulado y los modelos nuevos de ESE nombre (para que quien
-    llama pueda ir mezclando el catálogo en vivo, no solo al terminar)."""
-    global last_refresh_failures, last_refresh_skipped
+    """`on_total(n)` = modelos que anuncia la API; `on_progress(done, batch)`
+    después de cada página, con el conteo acumulado y los modelos de ESA
+    página (para que quien llama vaya mezclando el catálogo en vivo)."""
+    global last_refresh_incomplete
     # arranca de lo que ya teníamos: un refresh parcial nunca pierde datos
     miners: dict[str, dict] = {m["id"]: m for m in (previous or [])}
-    failures = 0
-    last_refresh_skipped = 0
+    done = 0
 
-    with httpx.Client(timeout=60, headers={"User-Agent": "optimizador-roller/0.1"}) as client:
-        # 1) resultados API 1..5 (listado masivo)
-        for it in _fetch_results(client):
-            miners[it["resultItemId"]] = _model_from_result(it)
+    def on_page(page: list[dict]) -> None:
+        nonlocal done
+        for m in page:
+            miners[m["id"]] = m
+        done += len(page)
+        if on_progress:
+            on_progress(done, page)
 
-        # 2) escalera + mineros base vía get-by-miner-name.
-        # Saltea los nombres que YA tienen su nivel base (1): así reintentar
-        # refresh() solo pega a los que faltan y converge en 2–3 pasadas.
-        # `full` re-escala todos los nombres (reconstrucción desde cero);
-        # `max_names` corta el paso lento si falta demasiado (ver autosync).
-        have_base = set() if full else {m["name"] for m in miners.values() if m["level"] == 1}
-        todo = sorted({m["name"] for m in miners.values()} - have_base)
-        if max_names is not None and len(todo) > max_names:
-            last_refresh_skipped = len(todo)
-            todo = []
-        if on_total:
-            on_total(len(todo))
+    with _new_client() as client:
+        _, complete = _fetch_miners(client, on_total=on_total, on_page=on_page)
 
-        def worker(name: str) -> tuple[list[dict], bool]:
-            recipes = _fetch_ladder(client, name)
-            if not recipes:
-                return [], True
-            found: list[dict] = []
-            for recipe in recipes:
-                found.append(_model_from_result(recipe))
-                for ri in recipe.get("requiredItems", []):
-                    m = _model_from_required(ri, name=recipe.get("resultItemName"))
-                    if m:
-                        found.append(m)
-            return found, False
-
-        with ThreadPoolExecutor(max_workers=_CONCURRENCY) as pool:
-            done = 0
-            for batch, failed in pool.map(worker, todo):
-                if failed:
-                    failures += 1
-                for m in batch:
-                    miners[m["id"]] = m
-                done += 1
-                if on_progress:
-                    on_progress(done, batch)
-
-    last_refresh_failures = failures
-    return sorted(miners.values(), key=lambda m: (m["name"], m["level"]))
+    last_refresh_incomplete = not complete
+    return sorted(_canonical_names(list(miners.values())), key=lambda m: (m["name"], m["level"]))
 
 
 def _read_json(path: Path) -> tuple[list[dict], float, float] | None:
@@ -289,10 +238,9 @@ class Catalog:
         self._disk_mtime: float = 0.0
         self._refreshing = False
         self._refresh_lock = threading.Lock()
-        # nombres resueltos / total de nombres a resolver en el refresh en
-        # curso (0/0 cuando no hay refresh corriendo). Se sabe recién
-        # después del listado masivo -> total arranca en 0 y salta al valor
-        # real apenas se conoce.
+        # modelos traídos / total que anuncia la API en el refresh en curso
+        # (0/0 cuando no hay refresh corriendo). El total llega con la 1ª
+        # página -> arranca en 0 y salta al valor real apenas se conoce.
         self._progress_done = 0
         self._progress_total = 0
         self._load_from_disk()
@@ -321,8 +269,8 @@ class Catalog:
                     break
             except OSError:
                 pass
-        # NO refresca por antigüedad de forma automática (tardaría minutos y
-        # bloquearía la request). Solo si no hay datos o si se fuerza.
+        # NO refresca por antigüedad de forma automática (bloquearía la
+        # request). Solo si no hay datos o si se fuerza.
         if force or not self._miners:
             self.refresh()
 
@@ -330,15 +278,9 @@ class Catalog:
     def refreshing(self) -> bool:
         return self._refreshing
 
-    def refresh(self, full: bool = False, max_names: int | None = None) -> None:
-        """Bloqueante. Trae solo los nombres que falten (con el seed completo
-        son segundos); `full=True` re-escala todos los nombres, que es la
-        descarga larga (~15-20 min por el rate-limit) y la única que conviene
-        anunciar como tal. `max_names` deja el paso lento sin hacer si faltan
-        más nombres que ese tope. No-op si ya hay otro refresh en curso. `self._miners` (y por lo
-        tanto `missing_base`/`all()`) se va actualizando EN VIVO a medida
-        que cada nombre termina, no recién al final -- antes quedaba
-        pegado al valor de antes de empezar durante los 15-20 min enteros."""
+    def refresh(self) -> None:
+        """Bloqueante (segundos: ~9 páginas). No-op si ya hay otro refresh en
+        curso. `self._miners` se va actualizando en vivo página a página."""
         if not self._refresh_lock.acquire(blocking=False):
             return
         self._refreshing = True
@@ -360,8 +302,6 @@ class Catalog:
                 previous=self._miners,
                 on_total=on_total,
                 on_progress=on_progress,
-                full=full,
-                max_names=max_names,
             )
             self._fetched_at = time.time()
             _write_cache(self._miners)
@@ -375,68 +315,54 @@ class Catalog:
             self._progress_total = 0
             self._refresh_lock.release()
 
-    def refresh_async(self, full: bool = False) -> bool:
+    def refresh_async(self) -> bool:
         """Lanza refresh() en un hilo. Devuelve False si ya había uno corriendo."""
         if self._refreshing:
             return False
-        threading.Thread(
-            target=self.refresh, kwargs={"full": full}, name="catalog-refresh", daemon=True
-        ).start()
+        threading.Thread(target=self.refresh, name="catalog-refresh", daemon=True).start()
         return True
 
     def autosync_async(self) -> bool:
-        """Puesta al día barata al arrancar. En un hosting con disco efímero
-        (Render duerme el servicio por inactividad y vuelve a levantar un
-        contenedor nuevo) se pierde `.cache/catalog.json` y el catálogo
-        retrocede al seed de la imagen; esto lo vuelve a poner al día solo,
-        trayendo únicamente los nombres que falten. Si faltan más de
-        `_AUTOSYNC_MAX_NAMES` no hace el paso lento: esa descarga la decide
-        el usuario. Devuelve False si no había nada que sincronizar."""
-        if self._refreshing or not self._miners:
+        """Puesta al día al arrancar. En un hosting con disco efímero (Render
+        duerme el servicio por inactividad y vuelve a levantar un contenedor
+        nuevo) se pierde `.cache/catalog.json` y el catálogo retrocede al seed
+        de la imagen; esto lo vuelve a poner al día solo."""
+        if not self._miners:
             return False
-        threading.Thread(
-            target=self.refresh,
-            kwargs={"max_names": _AUTOSYNC_MAX_NAMES},
-            name="catalog-autosync",
-            daemon=True,
-        ).start()
-        return True
+        return self.refresh_async()
 
     @property
     def progress(self) -> dict:
-        """{done, total} nombres resueltos / a resolver del refresh en
-        curso. {0, 0} si no hay ninguno corriendo."""
+        """{done, total} modelos traídos / anunciados del refresh en curso.
+        {0, 0} si no hay ninguno corriendo."""
         return {"done": self._progress_done, "total": self._progress_total}
 
     @property
     def missing_base(self) -> int:
-        """Nombres sin su nivel base (1). Indica un fetch incompleto."""
+        """Nombres sin su nivel base (1). Indica un catálogo incompleto."""
         names = {m["name"] for m in self._miners}
         have_base = {m["name"] for m in self._miners if m["level"] == 1}
         return len(names - have_base)
 
     def check_for_updates(self) -> dict:
-        """Fetch rápido (solo el listado masivo, sin la escalera por nombre
-        que es lo lento) para saber cuántos nombres distintos hay AHORA en
-        la API de RollerCoin vs. los que ya tenemos, sin arrancar el
-        refresh completo (~15-20 min). No toca el catálogo ni compite con
-        `refresh()` -- se puede llamar aunque haya uno en curso."""
-        with httpx.Client(timeout=30, headers={"User-Agent": "optimizador-roller/0.1"}) as client:
-            results = _fetch_results(client)
-        remote_names = {r["resultItemName"] for r in results}
+        """Compara el listado de la API con lo que ya tenemos, sin tocar el
+        catálogo (se puede llamar aunque haya un refresh en curso).
+        `pending` = nombres a los que les falta algún modelo."""
+        with _new_client() as client:
+            remote, _ = _fetch_miners(client)
+        remote = _canonical_names(remote)
+        local_ids = {m["id"] for m in self._miners}
+        remote_names = {r["name"] for r in remote}
         local_names = {m["name"] for m in self._miners}
         new_names = sorted(remote_names - local_names)
-        # nombres que un refresh incremental tendría que escalar: los nuevos
-        # más los que ya teníamos pero quedaron sin su nivel base.
-        have_base = {m["name"] for m in self._miners if m["level"] == 1}
-        pending = len((remote_names | local_names) - have_base)
+        pending = len({r["name"] for r in remote if r["id"] not in local_ids})
         return {
             "remote_names": len(remote_names),
             "local_names": len(local_names),
             "new_count": len(new_names),
             "new_names": new_names[:50],
             "pending": pending,
-            "eta_seconds": _eta_seconds(pending),
+            "eta_seconds": _eta_seconds(-(-len(remote) // _PAGE_SIZE)) if pending else 0,
         }
 
     def all(self) -> list[dict]:
