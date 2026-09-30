@@ -930,3 +930,190 @@ El Freon se pierde cada ronda: `restante = freon × (1 − merma%)^rondas`, con
 `rondas = floor(duty_time / leak_time)`. La calculadora solo lo muestra como
 referencia (cuánto Freon queda al terminar el turno de los hámsters); el bonus
 que informa es el del momento de cargar.
+
+---
+
+## 11. Excavación — Sunflower Land (vista aparte)
+
+Vista independiente del resto de la app: ayuda a decidir **dónde excavar** en el
+minijuego diario de Digby (desierto de Sunflower Land) para encontrar un tesoro
+elegido. No toca nada del optimizador. Implementación: `backend/app/sunflower.py`
+(datos), `frontend/src/excavacion.ts` (solver puro), `excavacion.worker.ts` (lo
+corre fuera del hilo de la UI) y `components/Excavacion.tsx` (UI).
+
+### 11.1 Reglas del juego
+
+Fuente: código abierto del juego (`src/features/game/types/desert.ts`), más lo
+que se validó con datos reales (§11.2).
+
+- Grilla de **10×10**. `x` = columna (0 a la izquierda), `y` = fila (0 arriba).
+  En la UI las posiciones se nombran fila (1–10) + columna (A–J): `x=1, y=7` es
+  **8B**.
+- Cada día (reinicio 00:00 UTC) cada jugador tiene **su propio** tablero: una
+  lista de **patrones** (`DIGGING_FORMATIONS`, pueden repetirse) y posiciones
+  ocultas. Un patrón es un conjunto fijo de casillas `(dx, dy, ítem)`: **no se
+  rota ni se refleja**, cae **completo dentro de la grilla** y **no se
+  superpone** con otro (sí pueden tocarse).
+- `"Seasonal Artefact"` es el artefacto del capítulo vigente (`CHAPTER_ARTEFACT`
+  y fechas de `chapters.ts`; p. ej. "Ascension Age" → Otter Pebble).
+- Excavar una casilla sin tesoro revela:
+  - **Crab**: al menos una de sus **4 vecinas ortogonales** tiene tesoro.
+  - **Sand**: **ninguna** de sus 4 vecinas ortogonales tiene tesoro.
+- Las posiciones las resuelve el **servidor** (`desert.dug` / `desert.drilled`):
+  nunca llegan al cliente. La herramienta solo deduce, no espía.
+- Excavaciones por día: 25 base, +20 Heart of Davy Jones, +5 Meerkat, +1
+  Pharaoh Chicken (colocados), +5 Bionic Drill (equipado), más `extraDigs`
+  comprados (`getRegularMaxDigs` / `getRemainingDigs`). Un taladro (Sand Drill)
+  excava un bloque 2×2 y cuenta como **una** excavación.
+- Cada excavación con pala **gasta una Sand Shovel** (salvo con el wearable
+  Ancient Shovel equipado); el taladro gasta una Sand Drill. El **presupuesto**
+  real de excavaciones de 1 casilla es `min(restantes, palas)`, o `restantes`
+  con Ancient Shovel.
+
+### 11.2 Validación con datos reales
+
+Con el volcado nocturno del API (`nightlyDump`, farms activos) se contrastaron
+las reglas que el código del cliente no muestra:
+
+- **Arena mira 4 vecinas, no 8**: ninguna arena tiene tesoro ortogonal, pero
+  muchas lo tienen en diagonal.
+- **Cangrejo**: ningún cangrejo con sus 4 vecinas excavadas quedó sin tesoro.
+- **Posición**: los patrones ubicados con exactitud llegan a todos los bordes
+  (0…9) y siempre caben enteros; la frecuencia por posición es compatible con
+  una elección uniforme entre las posiciones válidas.
+
+Por eso el modelo (§11.3) usa un **prior uniforme** sobre las configuraciones
+válidas. Si el juego tuviera un sesgo que no se vio, el error sería pequeño y
+se corrige con más datos, sin tocar el resto del solver.
+
+### 11.3 Modelo
+
+Una **configuración** asigna a cada patrón del día (instancias repetidas
+incluidas) una posición dentro de la grilla. Es **válida** si:
+
+1. Ningún par de patrones se superpone.
+2. Cada casilla excavada con un tesoro está cubierta por un patrón que pone
+   **ese mismo ítem** ahí.
+3. Ninguna casilla excavada con Sand o Crab está cubierta.
+4. Ninguna vecina ortogonal de una Sand está cubierta.
+5. Cada Crab tiene al menos una vecina ortogonal cubierta.
+
+Todas las configuraciones válidas son **igual de probables**. La probabilidad
+de una casilla para un ítem es la fracción de configuraciones válidas que lo
+ponen ahí. Si no hay ninguna configuración válida, los datos son inconsistentes
+(patrones de otro día o una casilla mal marcada) y se avisa en vez de adivinar.
+
+### 11.4 Cálculo
+
+- **Exacto** cuando se puede: búsqueda con poda (las restricciones 2–5 recortan
+  muchísimo a mitad de partida) con un tope de nodos y de configuraciones. Si
+  termina bajo el tope, las probabilidades son exactas.
+- **Muestreo (MCMC)** si no: cadenas de Gibbs que re-muestrean la posición de
+  uno o dos patrones a la vez (el movimiento de a dos permite que patrones con
+  ítems en común, como los de artefacto, se intercambien los hallazgos). Se
+  corren varias cadenas independientes; la diferencia máxima entre ellas se
+  informa como **precisión** (±puntos porcentuales).
+
+### 11.5 Recomendación
+
+Objetivo: **encontrar el tesoro elegido** (por defecto, el artefacto del
+capítulo) con las excavaciones que quedan.
+
+- **Mapa**: `P(ítem en la casilla)` para cada casilla sin excavar.
+- **Recomendada** (*rollout*): para cada casilla candidata se juega el resto de
+  la partida con el presupuesto real (§11.1) en tableros posibles ("mundos"),
+  excavando después siempre la casilla más probable, y se cuenta en cuántos se
+  encuentran **todas** las copias que faltan. Las probabilidades dentro de la
+  simulación salen de un filtro de partículas: las configuraciones ya
+  calculadas se descartan cuando contradicen lo "excavado", sin volver a
+  resolver el modelo. Dos etapas: todas las casillas con 120 mundos, y las 8
+  mejores más la más probable con 600 (los mismos mundos para todas:
+  comparación pareada). La candidata reemplaza a la **más probable** solo si le
+  gana por ≥ 2 errores estándar; si completar es imposible en todos lados, se
+  compara cuántas copias se encuentran. Se informa la probabilidad estimada de
+  encontrar todas las que faltan con ese presupuesto.
+  - Solo en **modo exacto** con ≤ 30.000 configuraciones: ahí las partículas son
+    todas las configuraciones y el filtro es una actualización bayesiana exacta.
+    Con una submuestra (modo muestreo) el jugador simulado se queda sin
+    partículas a las pocas excavaciones y la estimación deja de servir (con el
+    tablero vacío y 25 palas estimaba 4,7 % de completar; la realidad es ~80 %).
+    Ahí, y si no hay presupuesto, se recomienda la **más probable**.
+  - Límite de **4 s** para la primera etapa: en un dispositivo lento se abandona
+    y queda la más probable, avisando. (Corre en el navegador, no en el servidor.)
+
+  Validado por simulación, 100 tableros al azar con los patrones de un día real
+  (objetivo Otter Pebble ×3), los mismos tableros para las dos estrategias:
+
+  | Escenario | Más probable | Rollout | Rollout gana / pierde |
+  | --- | --- | --- | --- |
+  | Partida completa, 25 palas | 79 / 100 | **89 / 100** | 12 / 2 (p = 0,013) |
+  | Partida completa, 14 palas | 12 / 100 | 13 / 100 | 2 / 1 |
+  | 11 excavaciones hechas + 5 palas | 28 / 100 | 31 / 100 | 5 / 2 |
+
+  Antes se había probado y **descartado** un criterio que mira solo dos jugadas
+  (premiaba casillas que "informan" sin saber cuántas palas quedan): contra la
+  más probable, 17 / 40 frente a 32 / 40. Cualquier criterio nuevo se adopta
+  solo si le gana al vigente en la misma simulación.
+- **Seguro, no probable**: "0 %" y "100 %" solo se muestran cuando están
+  demostrados. En modo muestreo, que ninguna muestra tenga algo no lo prueba.
+  - **Hueco**: celda sin excavar donde es seguro que no hay tesoro — ningún
+    patrón cabe ahí (vale en cualquier modo: junto a una arena, esquinas donde
+    nada encaja) o, en modo exacto, ninguna configuración la cubre. Se dibuja
+    transparente (sigue aceptando marcas manuales).
+  - **Pista** (modo exacto): ítem que está en esa celda en **todas** las
+    configuraciones. Se dibuja distinto de lo excavado (icono tenue, borde
+    punteado) y se puede ocultar ("Mostrar pistas").
+  - **Patrones**: *ubicado* (verde) si su posición es la misma en todas las
+    configuraciones (solo modo exacto); *parcial* (amarillo) si en todas cubre
+    alguna celda ya excavada. Las instancias repetidas de un mismo patrón se
+    evalúan juntas (son intercambiables).
+- **Taladro**: el bloque 2×2 con más copias esperadas del tesoro (suma de
+  probabilidades de sus casillas sin excavar).
+
+### 11.6 Datos del API
+
+- Fuente: API comunitario de Sunflower Land,
+  `GET https://api.sunflower-land.com/community/farms/{id}` con header
+  `x-api-key`. La key requiere **VIP y Bumpkin nivel 50+** (se obtiene en
+  `sunflower-land.com/community-docs`). El backend la lee de `SFL_API_KEY`
+  (variable de entorno o `backend/.env`), nunca se manda al navegador. Con una
+  key se puede consultar **cualquier** granja: la vista es pública.
+- Límite: ~1 pedido cada 5 s **por IP**. El backend serializa los pedidos con
+  esa separación, cachea cada granja 10 s y rechaza con 429 si la cola se llena.
+- Patrones: seed versionado en `backend/app/data/digging_seed.json` (formas,
+  artefacto por capítulo e icono oficial de cada ítem), generado desde GitHub por
+  `scripts/build_digging_seed.py`. Si el API trae un patrón que el seed no
+  conoce, se re-descarga el seed (como mucho 1 vez por hora).
+- Si ninguna excavación es de hoy (UTC), el tablero guardado puede ser de ayer:
+  los hoyos viejos se descartan y se marca `stale` (los patrones pueden no ser
+  los de hoy hasta que el jugador entre al juego).
+- Iconos: `ITEM_DETAILS[ítem].image` del juego. Se **enlazan** (repo en GitHub o
+  `sunflower-land.com/game-assets`), nunca se copian: parte son del Sunnyside
+  Asset Pack, que es pago y no se puede redistribuir. Si uno no carga, la celda
+  muestra la abreviatura.
+- El jugador también puede marcar casillas a mano (por si el API tarda en
+  reflejar la última excavación). Lo manual se superpone a lo del API.
+
+### 11.7 Contrato
+
+- `GET /api/sunflower/digging/{land_id}` — `land_id`: ID numérico de la granja.
+
+```jsonc
+{
+  "land_id": "4501014652573593",
+  "updated_at": 1790795023363,          // ms, último guardado de la granja
+  "artefact": "Otter Pebble",
+  "patterns": ["ARTEFACT_TWENTY_ONE", "HIEROGLYPH", ...],
+  "formations": { "HIEROGLYPH": [{ "x": 0, "y": 0, "item": "Vase" }, ...] },
+  "holes": [{ "x": 6, "y": 5, "item": "Camel Bone", "tool": "Sand Shovel", "dug_at": 1790731300984 }],
+  "stale": false,                       // true: nada excavado hoy (§11.6)
+  "digs": { "max": 25, "used": 11, "extra": 0, "left": 14 },
+  "icons": { "Otter Pebble": "https://raw.githubusercontent.com/…/otter_pebble.webp",
+             "Crab": "https://sunflower-land.com/game-assets/…/crab.png" },
+  "shovels": 5, "drills": 0,            // en el inventario
+  "budget": 5                           // min(digs.left, shovels); digs.left con Ancient Shovel
+}
+```
+
+Errores: 404 granja inexistente, 429 cola llena o límite del API, 502 el API
+de Sunflower Land falló, 503 falta configurar la key.

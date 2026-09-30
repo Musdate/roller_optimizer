@@ -157,3 +157,25 @@ export function importRealRoom(
   const q = new URLSearchParams({ userId });
   return send(`${BASE}/room/import?${q}`).then((r) => json(r));
 }
+
+export interface DiggingState {
+  land_id: string;
+  updated_at: number;
+  artefact: string;
+  patterns: string[];
+  formations: Record<string, { x: number; y: number; item: string }[]>;
+  holes: { x: number; y: number; item: string; tool: string; dug_at: number }[];
+  stale: boolean;
+  digs: { max: number; used: number; extra: number; left: number };
+  /** ítem → URL oficial del icono */
+  icons: Record<string, string>;
+  shovels: number;
+  drills: number;
+  /** excavaciones de 1 casilla posibles hoy: restantes, limitadas por palas */
+  budget: number;
+}
+
+/** Excavación del día de una granja de Sunflower Land (RULES.md §11.7). */
+export function fetchDigging(landId: string): Promise<DiggingState> {
+  return send(`${BASE}/sunflower/digging/${encodeURIComponent(landId)}`).then((r) => json<DiggingState>(r));
+}

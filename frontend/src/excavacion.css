@@ -1,0 +1,176 @@
+/* Vista "Excavación" (Sunflower Land). Clases con prefijo exc- sobre la
+   paleta del optimizador. */
+
+.exc {
+  --exc-sand: #c8a96a;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.exc-land { width: 190px; }
+
+.exc-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+@media (max-width: 640px) {
+  .exc-tiles { gap: 6px; }
+  .exc-tile .n { font-size: 20px; }
+}
+.exc-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.exc-tile .k {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.exc-tile .n {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.exc-tile .n small { font-size: 14px; font-weight: 500; color: var(--muted); }
+.exc-tile-warn { border-color: var(--warn); }
+.exc-tile-warn .n { color: var(--warn); }
+
+.exc-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .exc-main { grid-template-columns: minmax(0, 1fr); }
+}
+
+.exc-on { border-color: var(--accent); color: var(--accent); }
+
+.exc-grid-wrap { max-width: 520px; margin: 0 auto; }
+.exc-grid {
+  display: grid;
+  grid-template-columns: 20px repeat(10, 1fr);
+  gap: 3px;
+}
+.exc-axis {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.exc-cell {
+  position: relative;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  border-radius: 5px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.exc-item { color: #0b0d11; font-weight: 700; border-color: transparent; }
+.exc-sand { background: color-mix(in srgb, var(--exc-sand) 22%, var(--panel)); border-color: transparent; }
+.exc-crab { background: color-mix(in srgb, var(--bad) 22%, var(--panel)); font-size: 15px; }
+.exc-manual::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+.exc-drill { outline: 2px dashed var(--warn); outline-offset: -2px; }
+.exc-best {
+  outline: 3px solid var(--accent);
+  outline-offset: -1px;
+  z-index: 1;
+  font-weight: 700;
+}
+
+.exc-picker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 10;
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  text-align: left;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.exc-right .exc-picker { left: auto; right: 0; }
+.exc-picker span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.exc-picker span:hover { background: var(--panel-2); }
+.exc-icon {
+  image-rendering: pixelated;
+  object-fit: contain;
+  flex: none;
+  vertical-align: middle;
+}
+.exc-cell > .exc-icon { width: 62%; height: 62%; }
+.exc-picker .exc-icon { width: 18px; height: 18px; }
+.exc-items .exc-icon { margin-right: 4px; }
+
+.exc-hint { font-size: 12px; margin-top: 10px; text-align: center; }
+
+.exc-items { display: flex; flex-wrap: wrap; gap: 5px; }
+
+.exc-reco { font-size: 16px; margin-bottom: 4px; }
+.exc-mode { font-size: 11px; margin-top: 10px; }
+
+.exc-patterns { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.exc-mini { display: grid; gap: 2px; padding: 3px; border-radius: 6px; outline: 2px solid transparent; }
+.exc-mini-located { outline-color: var(--good); }
+.exc-mini-partial { outline-color: var(--warn); }
+.exc-legend { font-size: 11px; margin-top: 10px; display: flex; align-items: center; gap: 5px; }
+.exc-dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; border: 2px solid; }
+.exc-dot-located { border-color: var(--good); }
+.exc-dot-partial { border-color: var(--warn); margin-left: 8px; }
+.exc-mini i {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.exc-success { font-size: 13px; margin-top: 8px; }
+
+/* seguro que no hay tesoro: hueco (sigue clickeable para marcar a mano) */
+.exc-void { background: transparent; border-color: transparent; }
+.exc-void:hover { border-color: var(--border); }
+/* pista: ítem seguro sin excavar — borde punteado e icono tenue, distinto de lo excavado */
+.exc-clue { border: 1.5px dashed var(--accent); }
+.exc-clue > .exc-icon { opacity: .55; }

@@ -1,9 +1,10 @@
-export type View = "optimizer" | "freon" | "estrategia12h";
+export type View = "optimizer" | "freon" | "estrategia12h" | "excavacion";
 
 const TABS: { value: View; label: string }[] = [
   { value: "optimizer", label: "Optimizador de Sala" },
   { value: "freon", label: "Calculadora Freon" },
   { value: "estrategia12h", label: "Estrategia 12h" },
+  { value: "excavacion", label: "Excavación SFL" },
 ];
 
 const MINAR_Y_GANAR_URL = "https://minaryganar.com/rollercoin/room-simulator";
@@ -18,13 +19,20 @@ export default function NavBar({
   return (
     <nav className="nav">
       {TABS.map((t) => (
-        <button
+        // enlace real: la rueda del mouse o Ctrl+clic abren la vista en otra pestaña
+        <a
           key={t.value}
-          className={`nav-tab${view === t.value ? " active" : ""}`}
-          onClick={() => onChange(t.value)}
+          href={`#${t.value}`}
+          className={`nav-tab nav-tab-link${view === t.value ? " active" : ""}`}
+          aria-current={view === t.value ? "page" : undefined}
+          onClick={(e) => {
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            onChange(t.value);
+          }}
         >
           {t.label}
-        </button>
+        </a>
       ))}
       <a
         className="nav-tab nav-tab-link"

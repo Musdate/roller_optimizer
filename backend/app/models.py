@@ -185,3 +185,38 @@ class RoomImportResponse(BaseModel):
     items: list[RoomImportItem]
     total_cells: int  # suma de width*count, informativo
     room_slots: list[str | None]  # 96 celdas en el mismo orden que en el juego
+
+
+class DigCellOut(BaseModel):
+    x: int
+    y: int
+    item: str
+
+
+class DugHoleOut(DigCellOut):
+    tool: str
+    dug_at: int
+
+
+class DigsOut(BaseModel):
+    max: int
+    used: int
+    extra: int
+    left: int
+
+
+class DiggingStateOut(BaseModel):
+    """Excavación de Sunflower Land, RULES.md §11.7."""
+
+    land_id: str
+    updated_at: int
+    artefact: str
+    patterns: list[str]
+    formations: dict[str, list[DigCellOut]]
+    holes: list[DugHoleOut]
+    stale: bool
+    digs: DigsOut
+    icons: dict[str, str]  # ítem → URL oficial del icono
+    shovels: int
+    drills: int
+    budget: int  # excavaciones de 1 casilla que de verdad se pueden hacer hoy

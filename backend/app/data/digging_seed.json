@@ -1,0 +1,842 @@
+{
+ "formations": {
+  "MONDAY_ARTEFACT_FORMATION": [
+   {
+    "x": 0,
+    "y": -1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": -1,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "TUESDAY_ARTEFACT_FORMATION": [
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": 2,
+    "item": "Camel Bone"
+   }
+  ],
+  "WEDNESDAY_ARTEFACT_FORMATION": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "THURSDAY_ARTEFACT_FORMATION": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": -1,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "FRIDAY_ARTEFACT_FORMATION": [
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 3,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "SATURDAY_ARTEFACT_FORMATION": [
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": -1,
+    "item": "Camel Bone"
+   }
+  ],
+  "SUNDAY_ARTEFACT_FORMATION": [
+   {
+    "x": 0,
+    "y": -2,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "ARTEFACT_ONE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 2,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_TWO": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 2,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_THREE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "ARTEFACT_FOUR": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 2,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 3,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_FIVE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": -1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": -2,
+    "y": 0,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_SIX": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": -1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": -2,
+    "y": -1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_SEVEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_EIGHT": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 2,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_NINE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": -1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": -1,
+    "y": -1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_TEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": -1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": -1,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_ELEVEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_TWELVE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": -1,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_THIRTEEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_FOURTEEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 0,
+    "y": 2,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_FIFTEEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_SIXTEEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_SEVENTEEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "ARTEFACT_EIGHTEEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_NINETEEN": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "ARTEFACT_TWENTY": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_TWENTY_ONE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "ARTEFACT_TWENTY_TWO": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "ARTEFACT_TWENTY_THREE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 2,
+    "y": 1,
+    "item": "Seasonal Artefact"
+   }
+  ],
+  "ARTEFACT_TWENTY_FOUR": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Seasonal Artefact"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Camel Bone"
+   },
+   {
+    "x": 2,
+    "y": 1,
+    "item": "Camel Bone"
+   }
+  ],
+  "HIEROGLYPH": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Vase"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Vase"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Hieroglyph"
+   }
+  ],
+  "OLD_BOTTLE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Old Bottle"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Old Bottle"
+   },
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Old Bottle"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Old Bottle"
+   }
+  ],
+  "COCKLE": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Cockle Shell"
+   },
+   {
+    "x": 1,
+    "y": 1,
+    "item": "Cockle Shell"
+   },
+   {
+    "x": 2,
+    "y": 2,
+    "item": "Cockle Shell"
+   }
+  ],
+  "WOODEN_COMPASS": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Wood"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Wooden Compass"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Wood"
+   }
+  ],
+  "SEA_CUCUMBERS": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Sea Cucumber"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Sea Cucumber"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Sea Cucumber"
+   },
+   {
+    "x": 3,
+    "y": 0,
+    "item": "Pipi"
+   }
+  ],
+  "SEAWEED": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Seaweed"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Seaweed"
+   },
+   {
+    "x": 2,
+    "y": 0,
+    "item": "Seaweed"
+   },
+   {
+    "x": 2,
+    "y": 1,
+    "item": "Starfish"
+   }
+  ],
+  "CLAM_SHELLS": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Clam Shell"
+   },
+   {
+    "x": 1,
+    "y": 0,
+    "item": "Clam Shell"
+   },
+   {
+    "x": 0,
+    "y": -1,
+    "item": "Clam Shell"
+   },
+   {
+    "x": 1,
+    "y": -1,
+    "item": "Clam Shell"
+   }
+  ],
+  "CORAL": [
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Stone"
+   },
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Coral"
+   },
+   {
+    "x": 0,
+    "y": -1,
+    "item": "Stone"
+   }
+  ],
+  "PEARL": [
+   {
+    "x": 0,
+    "y": 1,
+    "item": "Stone"
+   },
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Pearl"
+   },
+   {
+    "x": 0,
+    "y": -1,
+    "item": "Stone"
+   }
+  ],
+  "PIRATE_BOUNTY": [
+   {
+    "x": 0,
+    "y": 0,
+    "item": "Pirate Bounty"
+   }
+  ]
+ },
+ "chapters": [
+  {
+   "name": "Solar Flare",
+   "start": "2023-01-01T00:00:00.000Z",
+   "end": "2023-05-01T00:00:00.000Z",
+   "artefact": "Scarab"
+  },
+  {
+   "name": "Dawn Breaker",
+   "start": "2023-05-01T00:00:00.000Z",
+   "end": "2023-08-01T00:00:00.000Z",
+   "artefact": "Scarab"
+  },
+  {
+   "name": "Witches' Eve",
+   "start": "2023-08-01T00:00:00.000Z",
+   "end": "2023-11-01T00:00:00.000Z",
+   "artefact": "Scarab"
+  },
+  {
+   "name": "Catch the Kraken",
+   "start": "2023-11-01T00:00:00.000Z",
+   "end": "2024-02-01T00:00:00.000Z",
+   "artefact": "Scarab"
+  },
+  {
+   "name": "Spring Blossom",
+   "start": "2024-02-01T00:00:00.000Z",
+   "end": "2024-05-01T00:00:00.000Z",
+   "artefact": "Scarab"
+  },
+  {
+   "name": "Clash of Factions",
+   "start": "2024-05-01T00:00:00.000Z",
+   "end": "2024-08-01T00:00:00.000Z",
+   "artefact": "Scarab"
+  },
+  {
+   "name": "Pharaoh's Treasure",
+   "start": "2024-08-01T00:00:00.000Z",
+   "end": "2024-11-01T00:00:00.000Z",
+   "artefact": "Scarab"
+  },
+  {
+   "name": "Bull Run",
+   "start": "2024-11-01T00:00:00.000Z",
+   "end": "2025-02-03T00:00:00.000Z",
+   "artefact": "Cow Skull"
+  },
+  {
+   "name": "Winds of Change",
+   "start": "2025-02-03T00:00:00.000Z",
+   "end": "2025-05-01T00:00:00.000Z",
+   "artefact": "Ancient Clock"
+  },
+  {
+   "name": "Great Bloom",
+   "start": "2025-05-01T00:00:00.000Z",
+   "end": "2025-08-04T00:00:00.000Z",
+   "artefact": "Broken Pillar"
+  },
+  {
+   "name": "Better Together",
+   "start": "2025-08-04T00:00:00.000Z",
+   "end": "2025-11-03T00:00:00.000Z",
+   "artefact": "Coprolite"
+  },
+  {
+   "name": "Paw Prints",
+   "start": "2025-11-03T00:00:00.000Z",
+   "end": "2026-02-02T00:00:00.000Z",
+   "artefact": "Moon Crystal"
+  },
+  {
+   "name": "Crabs and Traps",
+   "start": "2026-02-02T00:00:00.000Z",
+   "end": "2026-05-04T00:00:00.000Z",
+   "artefact": "Ammonite Shell"
+  },
+  {
+   "name": "Salt Awakening",
+   "start": "2026-05-04T00:00:00.000Z",
+   "end": "2026-08-03T00:00:00.000Z",
+   "artefact": "Salt Dino Egg"
+  },
+  {
+   "name": "Ascension Age",
+   "start": "2026-08-03T00:00:00.000Z",
+   "end": "2026-11-02T00:00:00.000Z",
+   "artefact": "Otter Pebble"
+  }
+ ],
+ "icons": {
+  "Camel Bone": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/resources/camel_bone.webp",
+  "Starfish": "https://sunflower-land.com/game-assets/resources/treasures/starfish.png",
+  "Hieroglyph": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/resources/hieroglyph.webp",
+  "Ancient Clock": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/icons/ancient_clock.png",
+  "Crab": "https://sunflower-land.com/game-assets/resources/treasures/crab.png",
+  "Moon Crystal": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/icons/moon_crystal.webp",
+  "Sand": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/resources/sand.webp",
+  "Cow Skull": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/resources/cow_skull.png",
+  "Pipi": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/sfts/treasure/pipi.webp",
+  "Wooden Compass": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/sfts/treasure/wooden_compass.webp",
+  "Pirate Bounty": "https://sunflower-land.com/game-assets/resources/treasures/pirate_bounty.webp",
+  "Coprolite": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/icons/coprolite.webp",
+  "Old Bottle": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/sfts/treasure/old_bottle.png",
+  "Salt Dino Egg": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/icons/salt_dino_egg.webp",
+  "Seaweed": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/sfts/treasure/seaweed.webp",
+  "Wood": "https://sunflower-land.com/game-assets/resources/wood.png",
+  "Cockle Shell": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/resources/cockle_shell.webp",
+  "Vase": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/resources/vase.webp",
+  "Coral": "https://sunflower-land.com/game-assets/resources/treasures/coral.png",
+  "Otter Pebble": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/icons/otter_pebble.webp",
+  "Clam Shell": "https://sunflower-land.com/game-assets/resources/treasures/clam_shell.webp",
+  "Sea Cucumber": "https://sunflower-land.com/game-assets/resources/treasures/sea_cucumber.png",
+  "Ammonite Shell": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/icons/ammonite_shell.webp",
+  "Broken Pillar": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/icons/broken_pillar.webp",
+  "Scarab": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/resources/scarab.webp",
+  "Pearl": "https://raw.githubusercontent.com/sunflower-land/sunflower-land/main/src/assets/sfts/treasure/pearl.webp",
+  "Stone": "https://sunflower-land.com/game-assets/resources/stone.png"
+ }
+}

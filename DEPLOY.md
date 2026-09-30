@@ -69,6 +69,12 @@ compiten entre sí y rinden mucho peor (RULES.md §7.5). Con un inventario real 
 155 modelos y 1 worker, la optimización termina en ~30 s con el bruto demostrado
 óptimo.
 
+**Variable de entorno requerida para "Excavación SFL":** `SFL_API_KEY` (API key
+del API comunitario de Sunflower Land; requiere VIP y Bumpkin nivel 50+, se saca
+en `sunflower-land.com/community-docs`). En local basta con `backend/.env`
+(ignorado por git). Sin ella la pestaña responde 503 y el resto de la app sigue
+igual (RULES.md §11.6).
+
 ---
 
 ## Opción B — `docker compose` a mano en el VPS (sin Dokploy)

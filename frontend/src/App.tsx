@@ -12,11 +12,20 @@ import PasteInventory from "./components/PasteInventory";
 import NavBar, { type View } from "./components/NavBar";
 import Estrategia12h from "./components/Estrategia12h";
 import CalculadoraFreon from "./components/CalculadoraFreon";
+import Excavacion from "./components/Excavacion";
 import UndoToast from "./components/UndoToast";
 
 const VIEW_KEY = "roller-view";
-const VIEWS: View[] = ["optimizer", "freon", "estrategia12h"];
+const VIEWS: View[] = ["optimizer", "freon", "estrategia12h", "excavacion"];
+function viewFromHash(): View | null {
+  const v = window.location.hash.slice(1) as View;
+  return VIEWS.includes(v) ? v : null;
+}
+
 function loadView(): View {
+  // la URL manda (pestaña abierta con la rueda del mouse); si no, la última usada
+  const fromHash = viewFromHash();
+  if (fromHash) return fromHash;
   try {
     const v = localStorage.getItem(VIEW_KEY) as View | null;
     return v && VIEWS.includes(v) ? v : "optimizer";
@@ -41,7 +50,17 @@ export default function App() {
     } catch {
       // localStorage no disponible: la pestaña activa no se recuerda, nada más.
     }
+    if (window.location.hash !== `#${view}`) window.history.replaceState(null, "", `#${view}`);
   }, [view]);
+
+  useEffect(() => {
+    const onHash = () => {
+      const v = viewFromHash();
+      if (v) setView(v);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -116,6 +135,8 @@ export default function App() {
         <Estrategia12h />
       ) : view === "freon" ? (
         <CalculadoraFreon />
+      ) : view === "excavacion" ? (
+        <Excavacion />
       ) : (
         <>
       <div className="row between" style={{ marginBottom: 12 }}>

@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -21,6 +22,7 @@ from .catalog import RoomSyncError, catalog, fetch_user_room
 from .leagues import leagues
 from .models import (
     CatalogMinerOut,
+    DiggingStateOut,
     LeagueOut,
     MergeOut,
     MergeTargetOut,
@@ -37,6 +39,7 @@ from .models import (
 )
 from .optimizer import LockedOverCapError, MinerModel, OptimizeRequest, OptimizeResult, optimize
 from .paste import parse_inventory
+from .sunflower import SunflowerError, digging_state
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -275,6 +278,15 @@ def get_leagues() -> list[LeagueOut]:
         )
         for r in leagues.all()
     ]
+
+
+@app.get("/api/sunflower/digging/{land_id}", response_model=DiggingStateOut)
+def get_digging(land_id: str = PathParam(pattern=r"^\d{1,20}$")) -> dict:
+    """Patrones del día y hoyos excavados de una granja de Sunflower Land (RULES.md §11)."""
+    try:
+        return digging_state(land_id)
+    except SunflowerError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
 
 
 @app.post("/api/optimize", response_model=OptimizeJobStarted)

@@ -109,6 +109,11 @@ CORS real).
 - **`app/leagues.py`** — ligas (`/api/League` de la misma API; `minPower` en
   GH/s, tope = `minPower` de la siguiente − 1). Seed en
   `app/data/leagues_seed.json`, refresco en segundo plano ≤ 1 vez/24 h.
+- **`app/sunflower.py`** — pestaña "Excavación SFL" (RULES.md §11): patrones del
+  día y hoyos excavados de una granja de Sunflower Land vía su API comunitario
+  (`SFL_API_KEY` desde el entorno o `backend/.env`; pedidos serializados cada
+  5 s). Formas y artefacto por capítulo en `app/data/digging_seed.json`
+  (`scripts/build_digging_seed.py`, desde el código del juego en GitHub).
 - **`app/models.py`** — schemas Pydantic. Los números que exceden `2^53`
   (poderes) viajan como **string** en el JSON.
 - **`app/paste.py`** — parser del texto que se copia del inventario de
@@ -117,9 +122,11 @@ CORS real).
 
 ### Frontend — React + Zustand, sin router
 
-- **`src/App.tsx` + `src/components/NavBar.tsx`** — navbar de 2 pestañas
-  ("Optimizador de Sala" / "Estrategia 12h"); la activa se guarda en
-  `localStorage` (`roller-view`). El *polling* de catálogo sigue vivo en ambas.
+- **`src/App.tsx` + `src/components/NavBar.tsx`** — navbar de pestañas
+  (Optimizador de Sala, Calculadora Freon, Estrategia 12h, Excavación SFL). Cada
+  pestaña es un enlace `#vista` (se puede abrir en otra pestaña con la rueda del
+  mouse); al cargar manda el `#` de la URL y, si no hay, la última usada en
+  `localStorage` (`roller-view`). El *polling* de catálogo sigue vivo en todas.
   Además un enlace externo "Minar y Ganar" (no es una vista): abre
   `minaryganar.com/rollercoin/room-simulator` en otra pestaña.
 - **Vista "Estrategia 12h"** (`src/components/Estrategia12h.tsx` +
@@ -127,6 +134,12 @@ CORS real).
   app vanilla `barras-12h`: rastrea las barras de 12 h de los 15 minijuegos.
   Estado propio en `localStorage` (clave `ronda12-data-v3`), independiente del
   store del optimizador. Estilos con prefijo `s12-` sobre la paleta del optimizador.
+
+- **Vista "Excavación SFL"** (`src/components/Excavacion.tsx` +
+  `src/excavacion.ts` solver puro + `src/excavacion.worker.ts`) — probabilidad
+  por casilla y casilla recomendada en el minijuego de Digby (RULES.md §11). El
+  solver corre en un Web Worker: exacto si cabe en el presupuesto, si no MCMC.
+  Estado propio en `localStorage` (clave `sfl-excavacion`).
 
 - **`src/store.ts`** — **todo el estado del optimizador** vive acá (Zustand con
   `persist` a `localStorage`, clave `roller-optimizer`): inventario, objetivo, nº de salas, y
