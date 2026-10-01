@@ -369,7 +369,7 @@ export default function Excavacion() {
                 {Array.from({ length: CELLS }, (_, c) => {
                   const seen = observed[c];
                   const isManual = c in manual;
-                  const best = adv?.best === c;
+                  const best = !!adv?.tied.includes(c);
                   const p = heat?.[c] ?? 0;
                   const style: CSSProperties = {};
                   const voidCell = seen === undefined && !!an?.consistent && an.impossible[c];
@@ -512,11 +512,29 @@ export default function Excavacion() {
               ) : adv && adv.best !== null ? (
                 <>
                   <div className="exc-reco">
-                    Excava en <b>{coord(adv.best)}</b>
+                    Excava en{" "}
+                    {adv.tied.length > 1 ? (
+                      <>
+                        {adv.tied.slice(0, 4).map((c, i, list) => (
+                          <span key={c}>
+                            <b>{coord(c)}</b>
+                            {i < list.length - 1 ? (i === list.length - 2 && adv.tied.length <= 4 ? " o " : ", ") : ""}
+                          </span>
+                        ))}
+                        {adv.tied.length > 4 && ` y ${adv.tied.length - 4} más`}
+                        <span className="exc-tie"> empatadas</span>
+                      </>
+                    ) : (
+                      <b>{coord(adv.best)}</b>
+                    )}
                   </div>
                   <div className="muted" style={{ fontSize: 12 }}>
-                    {(adv.prob[adv.best] * 100).toFixed(1)}% de que haya {target} ahí
-                    {adv.method === "rollout"
+                    {adv.tied.length > 1
+                      ? `Todas tienen ~${(adv.prob[adv.best] * 100).toFixed(1)}% de ${target}; la diferencia entre ellas es menor que el margen de error, así que da igual cuál elijas.`
+                      : `${(adv.prob[adv.best] * 100).toFixed(1)}% de que haya ${target} ahí`}
+                    {adv.tied.length > 1
+                      ? ""
+                      : adv.method === "rollout"
                       ? ". No es la más probable, pero con tus palas te deja más opciones de encontrar todos."
                       : adv.method === "timeout"
                         ? ": es la más probable (este dispositivo no alcanzó a simular el resto de la partida)."
@@ -540,7 +558,9 @@ export default function Excavacion() {
                 <div className="muted exc-mode">
                   {an.mode === "exact"
                     ? `Cálculo exacto: ${an.samples.toLocaleString()} ubicaciones posibles.`
-                    : `Muestreo: ${an.samples.toLocaleString()} ubicaciones, precisión ±${(an.precision * 100).toFixed(1)} pp.`}
+                    : `Muestreo: ${an.samples.toLocaleString()} ubicaciones${
+                        adv?.precision != null ? `, precisión ±${(adv.precision * 100).toFixed(1)} pp` : ""
+                      }.`}
                   {result && ` ${Math.round(result.ms)} ms.`}
                 </div>
               )}

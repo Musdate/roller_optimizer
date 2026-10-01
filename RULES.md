@@ -1010,9 +1010,16 @@ ponen ahí. Si no hay ninguna configuración válida, los datos son inconsistent
   termina bajo el tope, las probabilidades son exactas.
 - **Muestreo (MCMC)** si no: cadenas de Gibbs que re-muestrean la posición de
   uno o dos patrones a la vez (el movimiento de a dos permite que patrones con
-  ítems en común, como los de artefacto, se intercambien los hallazgos). Se
-  corren varias cadenas independientes; la diferencia máxima entre ellas se
-  informa como **precisión** (±puntos porcentuales).
+  ítems en común, como los de artefacto, se intercambien los hallazgos). 4
+  cadenas independientes de 12.000 barridos cada una (más 300 de
+  calentamiento): 48.000 muestras, ~2 s en un PC.
+- **Precisión** (solo en muestreo): error estándar de la probabilidad de cada
+  casilla **para el tesoro elegido**, por *batch means* (cada cadena se parte
+  en 5 lotes: 20 lotes; las muestras seguidas de una cadena están
+  correlacionadas y no sirven como independientes), multiplicado por **1,3**:
+  medido con 10 corridas independientes del mismo tablero, batch means daba
+  0,11 pp y la desviación real entre corridas era 0,13–0,14 pp. Se informa ±2
+  errores estándar de la casilla recomendada.
 
 ### 11.5 Recomendación
 
@@ -1038,6 +1045,13 @@ capítulo) con las excavaciones que quedan.
     partículas a las pocas excavaciones y la estimación deja de servir (con el
     tablero vacío y 25 palas estimaba 4,7 % de completar; la realidad es ~80 %).
     Ahí, y si no hay presupuesto, se recomienda la **más probable**.
+  - **Empates** (al recomendar la más probable): en muestreo, toda casilla cuya
+    diferencia con la mejor está dentro de 2 errores estándar
+    (`p_mejor − p_c ≤ 2·√(se_mejor² + se_c²)`) está **empatada**; en modo exacto,
+    solo las de probabilidad idéntica. Se muestran todas ("3D o 5A,
+    empatadas") en vez de elegir una al azar del ruido. La simulación de
+    partidas no necesita esta regla: ya solo cambia de casilla con ventaja
+    significativa.
   - Límite de **4 s** para la primera etapa: en un dispositivo lento se abandona
     y queda la más probable, avisando. (Corre en el navegador, no en el servidor.)
 
@@ -1055,20 +1069,31 @@ capítulo) con las excavaciones que quedan.
   más probable, 17 / 40 frente a 32 / 40. Cualquier criterio nuevo se adopta
   solo si le gana al vigente en la misma simulación.
 - **Seguro, no probable**: "0 %" y "100 %" solo se muestran cuando están
-  demostrados. En modo muestreo, que ninguna muestra tenga algo no lo prueba.
-  - **Hueco**: celda sin excavar donde es seguro que no hay tesoro — ningún
-    patrón cabe ahí (vale en cualquier modo: junto a una arena, esquinas donde
-    nada encaja) o, en modo exacto, ninguna configuración la cubre. Se dibuja
+  **demostrados**. En modo exacto, lo que cumplen todas las configuraciones es
+  seguro. En muestreo, las muestras solo proponen candidatos (y descartan: cada
+  muestra es una configuración válida, así que si una sola contradice algo, no
+  es seguro); cada candidato se demuestra **buscando un contraejemplo** — una
+  configuración válida donde no se cumpla — con la misma búsqueda del modo
+  exacto pero deteniéndose en la primera. Si la búsqueda termina sin
+  encontrarlo, queda demostrado; si se pasa del presupuesto (1,5 s en total
+  para todas las demostraciones), no se muestra. Buscar uno es muchísimo más
+  barato que contarlos todos.
+  - **Hueco**: celda sin excavar donde es seguro que no hay tesoro (ningún
+    patrón cabe ahí, o no existe configuración que la cubra). Se dibuja
     transparente (sigue aceptando marcas manuales).
-  - **Pista** (modo exacto): ítem que está en esa celda en **todas** las
-    configuraciones. Se dibuja distinto de lo excavado (icono tenue, borde
-    punteado) y se puede ocultar ("Mostrar pistas").
+  - **Pista**: ítem que está en esa celda en todas las configuraciones. Se
+    dibuja distinto de lo excavado (icono tenue, borde punteado) y se puede
+    ocultar ("Mostrar pistas"). Ej.: un Hieroglyph excavado fija sus dos Vase
+    encima; una Wood junto a esos Vase fija el Wooden Compass y la otra Wood.
   - **Patrones**: *ubicado* (verde) si su posición es la misma en todas las
-    configuraciones (solo modo exacto); *parcial* (amarillo) si en todas cubre
-    alguna celda ya excavada. Las instancias repetidas de un mismo patrón se
-    evalúan juntas (son intercambiables).
-- **Taladro**: el bloque 2×2 con más copias esperadas del tesoro (suma de
-  probabilidades de sus casillas sin excavar).
+    configuraciones; *parcial* (amarillo) si en todas cubre alguna celda ya
+    excavada. Las instancias repetidas de un mismo patrón son intercambiables:
+    se mira qué **posiciones** ocupa el grupo en todas las configuraciones (de
+    dos Hieroglyph, uno puede estar ubicado y el otro no).
+  - Validado contra tableros reales simulados (el tablero oculto siempre es una
+    configuración válida, así que nada demostrado puede contradecirlo): 150
+    tableros, 130 en muestreo, 280 pistas, 1.663 huecos, 114 patrones ubicados
+    y 99 parciales, **0 contradicciones**.
 
 ### 11.6 Datos del API
 

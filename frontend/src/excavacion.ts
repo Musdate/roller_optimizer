@@ -24,8 +24,6 @@ export interface Analysis {
   mode: "exact" | "sampled";
   consistent: boolean;
   samples: number;
-  /** ± puntos de probabilidad (0 en modo exacto) */
-  precision: number;
   items: string[];
   /** ítem → probabilidad por celda */
   perItem: Record<string, number[]>;
@@ -47,6 +45,10 @@ export interface Advice {
   found: number;
   prob: number[];
   best: number | null;
+  /** casillas empatadas con `best` (la incluye; ordenadas de mayor a menor probabilidad) */
+  tied: number[];
+  /** ± puntos de probabilidad de `best` (2 errores estándar); null en modo exacto */
+  precision: number | null;
   /** "rollout": la simulación eligió otra casilla que la más probable, con ventaja clara;
    *  "timeout": el dispositivo no alcanzó a simular y quedó la más probable (§11.5) */
   method: "greedy" | "rollout" | "timeout";
@@ -214,20 +216,22 @@ type Rng = () => number;
  * primero se decide qué patrón cubre cada tesoro ya excavado (como en un
  * exact cover: cada celda la cubre exactamente uno), después se ubican los
  * patrones restantes en orden fijo.
- * Devuelve null si se pasó del presupuesto de trabajo.
+ * Devuelve null si se pasó del presupuesto de trabajo (con `rng`, siempre
+ * devuelve el resultado y `outOfBudget` dice si la búsqueda quedó incompleta).
  */
 function enumerate(
   m: Model,
   budget: number,
   maxLeaves: number,
   rng?: Rng,
-): { leaves: Uint8Array[]; choices: number[][] } | null {
+): { leaves: Uint8Array[]; choices: number[][]; outOfBudget: boolean } | null {
   const s = new State(m);
   const leaves: Uint8Array[] = [];
   const choices: number[][] = [];
   const n = m.inst.length;
   let work = 0;
   let abort = false;
+  let outOfBudget = false;
   const firstOnly = rng !== undefined;
 
   const shuffled = <T,>(a: T[]): T[] => {
@@ -263,6 +267,7 @@ function enumerate(
     if (abort) return;
     if (work > budget) {
       abort = true;
+      outOfBudget = true;
       return;
     }
     let bestOpts: [number, number][] | null = null;
@@ -311,9 +316,22 @@ function enumerate(
   };
 
   rec();
-  if (firstOnly) return { leaves, choices };
+  if (firstOnly) return { leaves, choices, outOfBudget };
   if (abort) return null;
-  return { leaves, choices };
+  return { leaves, choices, outOfBudget };
+}
+
+// ---- demostraciones (modo muestreo, §11.5) -------------------------------------------
+
+const PROOF_BUDGET = 3_000_000;
+const PROOF_TIME_MS = 1500;
+
+/** ¿Existe alguna configuración válida? null = no se pudo decidir dentro del presupuesto. */
+function feasible(m: Model): boolean | null {
+  if (m.inst.some((l) => !l.length)) return false;
+  const r = enumerate(m, PROOF_BUDGET, 1, mulberry32(1))!;
+  if (r.leaves.length) return true;
+  return r.outOfBudget ? null : false;
 }
 
 // ---- MCMC (Gibbs de 1 y 2 patrones) -------------------------------------------------
@@ -377,7 +395,11 @@ function gibbsPair(m: Model, s: State, i: number, j: number, rng: Rng) {
 
 const CHAINS = 4;
 const BURN_IN = 300;
-const SWEEPS = 4000;
+const SWEEPS = 12_000;
+/** lotes por cadena para estimar el error estándar (batch means, §11.4) */
+const BATCHES_PER_CHAIN = 5;
+/** batch means subestima ~20 % la variación real entre corridas (medido, §11.4) */
+const SE_CALIBRATION = 1.3;
 
 function sample(m: Model, seed: number): { chains: Uint8Array[][]; choices: number[][] } | null {
   const chains: Uint8Array[][] = [];
@@ -424,6 +446,8 @@ export interface Computed {
   dug: boolean[];
   /** resultado de excavar cada celda en cada configuración (se arma al primer uso) */
   outcomes?: Uint8Array;
+  /** lotes contiguos de igual tamaño para el error estándar (0 = modo exacto) */
+  batches: number;
 }
 
 function marginals(configs: Uint8Array[], k: number): number[] {
@@ -439,7 +463,6 @@ export function analyze(p: Problem, seed = 12345): Computed {
       mode: "exact",
       consistent: false,
       samples: 0,
-      precision: 0,
       items,
       perItem: {},
       anyTreasure: Array(CELLS).fill(0),
@@ -449,13 +472,13 @@ export function analyze(p: Problem, seed = 12345): Computed {
     },
     configs: [],
     dug: Array(CELLS).fill(false),
+    batches: 0,
   });
   if (!m || m.inst.some((l) => !l.length)) return empty(m?.items ?? []);
 
   let configs: Uint8Array[];
   let choices: number[][];
   let mode: Analysis["mode"] = "exact";
-  let precision = 0;
   const exact = enumerate(m, EXACT_BUDGET, EXACT_MAX_LEAVES);
   if (exact) {
     if (!exact.leaves.length) return empty(m.items);
@@ -467,14 +490,6 @@ export function analyze(p: Problem, seed = 12345): Computed {
     mode = "sampled";
     configs = r.chains.flat();
     choices = r.choices;
-    // precisión: mayor diferencia entre una cadena y el total, en cualquier ítem/celda
-    for (let k = 1; k <= m.items.length; k++) {
-      const all = marginals(configs, k);
-      for (const ch of r.chains) {
-        const part = marginals(ch, k);
-        for (let c = 0; c < CELLS; c++) precision = Math.max(precision, Math.abs(part[c] - all[c]));
-      }
-    }
   }
 
   const perItem: Record<string, number[]> = {};
@@ -485,38 +500,61 @@ export function analyze(p: Problem, seed = 12345): Computed {
 
   const coverable = Array<boolean>(CELLS).fill(false);
   for (const list of m.inst) for (const pl of list) for (const c of pl.cells) coverable[c] = true;
-  const impossible = Array.from(
-    { length: CELLS },
-    (_, c) => !m.dug[c] && (!coverable[c] || (mode === "exact" && anyTreasure[c] === 0)),
-  );
-  const certain = Array.from({ length: CELLS }, (_, c) => {
-    if (mode !== "exact" || m.dug[c]) return null;
-    const name = m.items.find((it) => perItem[it][c] === 1);
-    return name ?? null;
+  // En modo exacto, lo que dicen todas las configuraciones es seguro. En
+  // muestreo, las muestras solo proponen candidatos (y descartan: cada muestra
+  // es una configuración válida); cada candidato se demuestra buscando un
+  // contraejemplo, y lo que no se alcanza a demostrar no se muestra.
+  const deadline = Date.now() + PROOF_TIME_MS;
+  const proven = (counterexample: () => Model) =>
+    mode === "exact" || (Date.now() < deadline && feasible(counterexample()) === false);
+  const restrict = (ids: number[], keep: (pl: Placement, k: number) => boolean): Model => ({
+    ...m,
+    inst: m.inst.map((list, i) => (ids.includes(i) ? list.filter(keep) : list)),
   });
+  const allIds = m.inst.map((_, i) => i);
 
-  // patrones repetidos se evalúan juntos: sus instancias son intercambiables
+  const certain: (string | null)[] = Array(CELLS).fill(null);
+  for (let c = 0; c < CELLS; c++) {
+    if (m.dug[c]) continue;
+    const k = m.items.findIndex((it) => perItem[it][c] === 1) + 1;
+    if (!k) continue;
+    const without = () => restrict(allIds, (pl) => pl.codes[pl.cells.indexOf(c)] !== k);
+    if (proven(without)) certain[c] = m.items[k - 1];
+  }
+
+  // patrones repetidos: sus instancias son intercambiables, así que se mira qué
+  // posiciones ocupa el grupo en todas las configuraciones
   const patternStatus: Analysis["patternStatus"] = p.patterns.map(() => "none");
   const groups = new Map<string, number[]>();
   p.patterns.forEach((name, i) => groups.set(name, [...(groups.get(name) ?? []), i]));
+  const touchesDug = (pl: Placement) => pl.cells.some((c) => m.dug[c]);
   for (const ids of groups.values()) {
-    const key = (ch: number[]) =>
-      ids
-        .map((i) => ch[i])
-        .sort((a, b) => a - b)
-        .join(",");
-    const k0 = key(choices[0]);
-    const located = mode === "exact" && choices.every((ch) => key(ch) === k0);
-    const touched = choices.every((ch) => ids.some((i) => m.inst[i][ch[i]].cells.some((c) => m.dug[c])));
-    for (const i of ids) patternStatus[i] = located ? "located" : touched ? "partial" : "none";
+    const fixed = [...new Set(ids.map((i) => choices[0][i]))].filter((k) =>
+      choices.every((ch) => ids.some((i) => ch[i] === k)),
+    );
+    const locked = fixed.filter((k) => proven(() => restrict(ids, (_, kk) => kk !== k)));
+    const rest = ids.slice(locked.length);
+    locked.forEach((_, j) => (patternStatus[ids[j]] = "located"));
+    if (!rest.length) continue;
+    const lockedSet = new Set(locked);
+    const touched = choices.every((ch) => ids.some((i) => !lockedSet.has(ch[i]) && touchesDug(m.inst[i][ch[i]])));
+    const noneTouch = () => restrict(ids, (pl, k) => lockedSet.has(k) || !touchesDug(pl));
+    if (touched && proven(noneTouch)) patternStatus[rest[0]] = "partial";
   }
+
+  const impossible = Array.from(
+    { length: CELLS },
+    (_, c) =>
+      !m.dug[c] &&
+      (!coverable[c] ||
+        (anyTreasure[c] === 0 && proven(() => ({ ...m, treasureCells: [...m.treasureCells, c] })))),
+  );
 
   return {
     analysis: {
       mode,
       consistent: true,
       samples: configs.length,
-      precision,
       items: m.items,
       perItem,
       anyTreasure,
@@ -526,6 +564,7 @@ export function analyze(p: Problem, seed = 12345): Computed {
     },
     configs,
     dug: m.dug,
+    batches: mode === "sampled" ? CHAINS * BATCHES_PER_CHAIN : 0,
   };
 }
 
@@ -719,6 +758,35 @@ function rollout(comp: Computed, code: number, remaining: number, budget: number
   };
 }
 
+/** Error estándar de P(ítem `code` en cada celda) por batch means (§11.4). */
+function standardErrors(comp: Computed, code: number): Float64Array {
+  const B = comp.batches;
+  const se = new Float64Array(CELLS);
+  if (!B) return se;
+  const len = comp.configs.length / B;
+  const mean = new Float64Array(CELLS);
+  const sq = new Float64Array(CELLS);
+  const cnt = new Float64Array(CELLS);
+  for (let b = 0; b < B; b++) {
+    cnt.fill(0);
+    for (let i = b * len; i < (b + 1) * len; i++) {
+      const cfg = comp.configs[i];
+      for (let c = 0; c < CELLS; c++) if (cfg[c] === code) cnt[c]++;
+    }
+    for (let c = 0; c < CELLS; c++) {
+      const v = cnt[c] / len;
+      mean[c] += v;
+      sq[c] += v * v;
+    }
+  }
+  for (let c = 0; c < CELLS; c++) {
+    const m = mean[c] / B;
+    const variance = Math.max(0, (sq[c] - B * m * m) / (B - 1));
+    se[c] = SE_CALIBRATION * Math.sqrt(variance / B);
+  }
+  return se;
+}
+
 /** Recomendación para un tesoro (§11.5). Con `useRollout = false`, solo la
  *  casilla más probable (la estrategia base; sirve para comparar en simulación). */
 export function advise(
@@ -737,7 +805,19 @@ export function advise(
   );
   const found = Object.values(p.observed).filter((v) => v === target).length;
   const prob = analysis.perItem[target] ?? Array(CELLS).fill(0);
-  const none: Advice = { target, total, found, prob, best: null, method: "greedy", budget, success: null, drill: null };
+  const none: Advice = {
+    target,
+    total,
+    found,
+    prob,
+    best: null,
+    tied: [],
+    precision: null,
+    method: "greedy",
+    budget,
+    success: null,
+    drill: null,
+  };
   if (!code || !configs.length || found >= total) return none;
 
   let greedy = -1;
@@ -749,6 +829,19 @@ export function advise(
   const exact = analysis.mode === "exact" && configs.length <= MAX_ROLLOUT_CONFIGS;
   if (useRollout && budget > 0 && exact) ({ best, method, success } = rollout(comp, code, total - found, budget, greedy, seed));
 
+  const se = standardErrors(comp, code);
+  const precision = comp.batches ? 2 * se[best] : null;
+  // la simulación ya solo se desvía con ventaja significativa: los empates son
+  // de la recomendación "más probable" (§11.5)
+  let tied = [best];
+  if (success === null) {
+    const isTie = (c: number) =>
+      comp.batches
+        ? prob[c] > 0 && prob[best] - prob[c] <= 2 * Math.sqrt(se[best] ** 2 + se[c] ** 2)
+        : Math.abs(prob[c] - prob[best]) < 1e-12;
+    tied = [...Array(CELLS).keys()].filter((c) => !dug[c] && (c === best || isTie(c))).sort((a, b) => prob[b] - prob[a]);
+  }
+
   let drill: Advice["drill"] = null;
   for (let y = 0; y < SIZE - 1; y++)
     for (let x = 0; x < SIZE - 1; x++) {
@@ -758,5 +851,5 @@ export function advise(
       if (!drill || e > drill.expected + 1e-12) drill = { x, y, expected: e };
     }
 
-  return { target, total, found, prob, best, method, budget, success, drill };
+  return { target, total, found, prob, best, tied, precision, method, budget, success, drill };
 }

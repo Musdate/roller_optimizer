@@ -174,3 +174,4 @@
 /* pista: ítem seguro sin excavar — borde punteado e icono tenue, distinto de lo excavado */
 .exc-clue { border: 1.5px dashed var(--accent); }
 .exc-clue > .exc-icon { opacity: .55; }
+.exc-tie { font-size: 12px; color: var(--muted); }
