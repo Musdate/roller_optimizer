@@ -17,6 +17,21 @@ import UndoToast from "./components/UndoToast";
 
 const VIEW_KEY = "roller-view";
 const VIEWS: View[] = ["optimizer", "freon", "estrategia12h", "excavacion"];
+const BOOT_MSGS = [
+  "Conectando con el servidor…",
+  "Encendiendo los mineros…",
+  "Desempolvando los estantes de la sala…",
+  "Calentando las GPU…",
+  "Rellenando el freón…",
+  "Aceitando los ventiladores…",
+  "Despertando al servidor (tenía sueño)…",
+  "Buscando la llave de la sala…",
+  "Desenredando cables que nadie etiquetó…",
+  "Contando hashes uno por uno…",
+  "Convenciendo al hámster de volver a la rueda…",
+  "Soplando el polvo de los disipadores…",
+];
+
 function viewFromHash(): View | null {
   const v = window.location.hash.slice(1) as View;
   return VIEWS.includes(v) ? v : null;
@@ -38,6 +53,7 @@ export default function App() {
   // Render (plan free) duerme el contenedor: el primer /api/health lo despierta
   // y hasta que responde se muestra un loading. Ver DEPLOY.md "Específico de Render".
   const [booting, setBooting] = useState(true);
+  const [bootMsg, setBootMsg] = useState(0);
   const [backendDown, setBackendDown] = useState(false);
   const [missingBase, setMissingBase] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -46,6 +62,12 @@ export default function App() {
   const [showPaste, setShowPaste] = useState(false);
   const [view, setView] = useState<View>(loadView);
   const pollTick = useCatalogPoll((s) => s.tick);
+
+  useEffect(() => {
+    if (!booting) return;
+    const id = window.setInterval(() => setBootMsg((i) => (i + 1) % BOOT_MSGS.length), 2500);
+    return () => window.clearInterval(id);
+  }, [booting]);
 
   useEffect(() => {
     try {
@@ -137,7 +159,7 @@ export default function App() {
       {booting && (
         <div className="boot-loading" role="status">
           <div className="boot-spinner" />
-          <div>Conectando con el servidor…</div>
+          <div>{BOOT_MSGS[bootMsg]}</div>
           <div className="muted">Si estaba dormido, puede tardar hasta un minuto.</div>
         </div>
       )}
