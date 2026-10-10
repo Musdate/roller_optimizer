@@ -69,6 +69,22 @@ compiten entre sí y rinden mucho peor (RULES.md §7.5). Con un inventario real 
 155 modelos y 1 worker, la optimización termina en ~30 s con el bruto demostrado
 óptimo.
 
+### Específico de Render (quitar al salir de Render)
+
+Cosas que existen solo porque el servicio está en Render; en un VPS propio
+(Opción A/B) sobran:
+
+- **Loading inicial** (`frontend/src/App.tsx`, estado `booting` + `.boot-loading`
+  en `index.css`): al cargar la página se muestra "Conectando con el servidor…"
+  hasta que responde el primer `GET /api/health`. Ese pedido es el que despierta
+  el contenedor dormido, así que cuando el usuario empieza a usar la app el
+  backend ya está levantado. Para quitarlo: borrar el estado `booting`, su
+  `setBooting(false)` en el poll de health, el bloque `{booting && …}` y los
+  estilos `.boot-loading` / `.boot-spinner`.
+- **`OPT_WORKERS=2`** (variable de entorno en el panel de Render): baja los
+  workers del solver por la poca CPU del plan. Fuera de Render, quitar la
+  variable para volver al default de 8 (o ajustarla a los núcleos del VPS).
+
 **Variable de entorno requerida para "Excavación SFL":** `SFL_API_KEY` (API key
 del API comunitario de Sunflower Land; requiere VIP y Bumpkin nivel 50+, se saca
 en `sunflower-land.com/community-docs`). En local basta con `backend/.env`

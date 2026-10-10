@@ -35,6 +35,9 @@ function loadView(): View {
 }
 
 export default function App() {
+  // Render (plan free) duerme el contenedor: el primer /api/health lo despierta
+  // y hasta que responde se muestra un loading. Ver DEPLOY.md "Específico de Render".
+  const [booting, setBooting] = useState(true);
   const [backendDown, setBackendDown] = useState(false);
   const [missingBase, setMissingBase] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -88,6 +91,7 @@ export default function App() {
       health()
         .then((h) => {
           if (!alive) return;
+          setBooting(false);
           setBackendDown(false);
           const m = Number(h.catalog_missing_base) || 0;
           const busy = Boolean(h.catalog_refreshing);
@@ -109,6 +113,7 @@ export default function App() {
         })
         .catch(() => {
           if (!alive) return;
+          setBooting(false);
           setBackendDown(true);
           timer = window.setTimeout(poll, 15000);
         });
@@ -129,6 +134,13 @@ export default function App() {
 
   return (
     <div className="app">
+      {booting && (
+        <div className="boot-loading" role="status">
+          <div className="boot-spinner" />
+          <div>Conectando con el servidor…</div>
+          <div className="muted">Si estaba dormido, puede tardar hasta un minuto.</div>
+        </div>
+      )}
       <NavBar view={view} onChange={setView} />
 
       {view === "estrategia12h" ? (
