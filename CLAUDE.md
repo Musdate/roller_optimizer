@@ -123,7 +123,8 @@ CORS real).
 ### Frontend — React + Zustand, sin router
 
 - **`src/App.tsx` + `src/components/NavBar.tsx`** — navbar de pestañas
-  (Optimizador de Sala, Calculadora Freon, Estrategia 12h, Excavación SFL). Cada
+  (Optimizador de Sala, Calculadora Freon, Estrategia 12h, Excavación SFL,
+  Computers RH). Cada
   pestaña es un enlace `#vista` (se puede abrir en otra pestaña con la rueda del
   mouse); al cargar manda el `#` de la URL y, si no hay, la última usada en
   `localStorage` (`roller-view`). El *polling* de catálogo sigue vivo en todas.
@@ -140,6 +141,14 @@ CORS real).
   por casilla y casilla recomendada en el minijuego de Digby (RULES.md §11). El
   solver corre en un Web Worker: exacto si cabe en el presupuesto, si no MCMC.
   Estado propio en `localStorage` (clave `sfl-excavacion`).
+
+- **Vista "Computers RH"** (`src/components/ComputersRH.tsx` + `src/crh.ts`
+  lógica pura + `src/crh-data.ts` snapshot del catálogo + `src/crh.css`) —
+  ganancia neta diaria de una isla de Computers RH: H/s, temperatura, pasta,
+  polvo, desgaste, electricidad, bonus de isla, estrategia de cuidado óptima,
+  qué PC comprar y mejoras por pieza (RULES.md §12). Solo frontend; el juego no
+  tiene API pública, las recompensas se ingresan a mano. Estado en
+  `localStorage` (clave `crh-calc`).
 
 - **`src/store.ts`** — **todo el estado del optimizador** vive acá (Zustand con
   `persist` a `localStorage`, clave `roller-optimizer`): inventario, objetivo, nº de salas, y

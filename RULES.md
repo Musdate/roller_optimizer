@@ -1142,3 +1142,208 @@ capítulo) con las excavaciones que quedan.
 
 Errores: 404 granja inexistente, 429 cola llena o límite del API, 502 el API
 de Sunflower Land falló, 503 falta configurar la key.
+
+---
+
+## 12. Computers RH (vista aparte)
+
+Calculadora de **ganancia neta diaria** para Computers RH (juego de armar PCs en
+una isla; `computersrh.xyz`). No toca nada del optimizador. Fuente: la
+documentación oficial (`computersrh.xyz/docs`) y su `docs-data.json`, revisión
+de economía `island-b-20261008`, catálogo `island-catalog-v8`. El snapshot vive
+en `frontend/src/crh-data.ts`; la lógica pura en `frontend/src/crh.ts`; la UI en
+`frontend/src/components/ComputersRH.tsx`. Unidades: **H/s**, **W**, **USD**,
+horas. Al juego no se le consulta nada: no tiene API pública (la suya es
+privada, `/api/early-access/…`), así que las recompensas se ingresan a mano.
+
+### 12.1 H/s y watts de una PC
+
+```
+parts_hs = CPU + GPU + SSD + RAM
+watts    = base_placa (16 W DDR5, 4 W DDR2/DDR3) + CPU + GPU + SSD + RAM + cooler + ventiladores
+valor    = 7.959975 × parts_hs − 0.594 × watts
+mult     = curva(valor)          # 1.00 … 1.40
+hs_sano  = parts_hs × mult       # "healthy H/s": sin calor ni desgaste
+```
+
+`curva`: puntos (valor, mult) de las tarjetas (Seed 19.53→1.00 … Hyperion
+14985→1.40), interpolación **lineal en log-log** entre puntos; por debajo del
+primero 1.00, por encima del último 1.40. Verificado: Grove 502.15 → 1.1883,
+Sprout 51.85 → 1.0521, Mack mini 1115.6 → 1.2383 (los valores de las tarjetas).
+
+RAM: velocidad = mínimo entre la de la placa y la de cada módulo.
+- DDR5: `(10 + 6 × log2(GB ÷ 8)) × velocidad ÷ 4800`.
+- DDR2/DDR3: tabla 2→1, 4→2, 8→4, 16→6 H/s × velocidad ÷ 1600. **Supuesto**: entre
+  puntos de la tabla (6 GB, 12 GB) se interpola lineal en `log2(GB)`; la doc no
+  lo dice.
+
+Sistemas sellados (Grain, Pebble, Mack mini M4 Pro): H/s y W fijos; la curva
+igual aplica (la Mack mini da 145 × 1.2383).
+
+### 12.2 Validación del armado
+
+Exactamente 1 placa, CPU, GPU, SSD, fuente, cooler y gabinete, y ≥ 1 kit de RAM.
+Socket CPU = placa; memoria de cada kit = placa; módulos ≤ ranuras; GB totales ≤
+máximo de la placa; módulo ≤ módulo máximo; ventiladores ≤ montajes del
+gabinete; cooler de familia (LGA775/1155) solo en su placa; fuente ≥ watts ×
+1.15. Isla nivel 1: `hs_sano ≤ 900` por PC (si no, nivel 2). Grain, Pebble,
+Seed y Sprout: 1 por isla. Capacidad eléctrica: la suma de watts de todas las PC
+instaladas ≤ capacidad del nivel de energía (400 W … 4250 W).
+
+### 12.3 Temperatura
+
+Por chip (CPU y GPU), la PC toma el más caliente:
+
+```
+chip °C   = 43 + (calor_pc + calor_chip ÷ cooler) ÷ airflow + pasta_seca
+calor_pc  = 0.043 × (watts − watts de ventiladores − watts del cooler)
+calor_chip= CPU: 6.5 × W_cpu ÷ 35   ·   GPU: 9 × W_gpu ÷ 75
+cooler    = rating del cooler (CPU) o rating propio de la GPU
+airflow   = airflow% × (0.7 + 2 × flujo ÷ (flujo + target_gabinete))
+flujo     = Σ ventilador: fuerza × (mm ÷ 120)² × limpieza
+limpieza  = 1 − 0.75 × min(horas_desde_limpieza ÷ 48, 1)        # 100% → 25%
+pasta_seca= 20 × min(horas_desde_pasta ÷ vida, 1)   vida: CPU 72 h, GPU 96 h
+```
+
+`target_gabinete` sale de `docs-data.json`. Montajes de un gabinete con dos
+tamaños (JONSBRO MOD-3 120/140, LANCHILL 216 140/160): `montajes − 1` del
+tamaño grande y 1 del chico, y los ventiladores ocupan primero los grandes
+(**inferido**: reproduce la tarjeta Sequoia). Sellados: parten de su
+temperatura propia (Mack mini 47/45 °C; Grain 44.8, Pebble 45 — la GPU se toma
+2 °C menos, **supuesto**), pasta igual que arriba y polvo `+12 × min(h ÷ 48, 1)` °C.
+
+Verificado contra las tablas de la doc: Seed 52.2, Sapling 53.6, Fern 54.4,
+Cedar 56.9, Redwood 57.9, Sequoia 58.4, Canopy 56.7, Hyperion 58.1 °C nuevas;
+Cedar sin cuidado 64.1/69.2/75.6/82.3/84.5 °C a 24/36/48/72/96 h. Grove da
+57.44 contra 57.5 de la doc (única diferencia, 0.06 °C).
+
+### 12.4 Pérdidas
+
+```
+calor    = min(30, 1.2 × (T − 70))   si T > 70, si no 0      (%)
+desgaste = 15 × min(horas_desde_reparación ÷ 336, 1)          (%)
+pérdida  = min(50, calor + desgaste)
+hs       = hs_sano × (1 − pérdida)
+```
+
+Los relojes (pasta, polvo, desgaste) solo corren minando; la calculadora asume
+la PC encendida 24 h con energía siempre.
+
+### 12.5 Costos (USD por día)
+
+- Electricidad: `watts × 24 ÷ 1000 × 0.55`.
+- Pasta (por chip): `max(0.25, 0.2% × precio del chip)` por dosis. Sellados:
+  precio propio (Grain 0.01, Pebble 0.05) o 0.2% del precio del sistema.
+- Limpieza: `max(0.20, 0.01% × valor_pc ÷ n_vent)` por ventilador (sellado = 1
+  unidad; Grain 0.01, Pebble 0.04). `valor_pc` = precio de la tarjeta o suma de
+  las partes.
+- Reparación: `max(0.10, 2% × precio)` por cada parte salvo el gabinete (cada
+  kit de RAM y cada ventilador cuentan); todas se gastan igual, así que se
+  repara todo junto. Sellados: Grain 0.02, Pebble 0.10, Mack mini 2% del precio.
+  Una parte cuenta como gastada desde 5% (112 h): no se repara antes.
+- Costo diario de una tarea cada `I` horas: `costo × 24 ÷ I`.
+
+### 12.6 Estrategia de cuidado
+
+Cada PC tiene 4 intervalos (pasta CPU, pasta GPU, limpieza, reparación; "nunca"
+= ∞). La pérdida por calor promedio se calcula simulando 2016 h (mcm de 48, 72,
+96 y 336) en pasos de 1 h, muestreando a mitad de cada hora; con "nunca" el
+reloj queda en su máximo (régimen permanente). El desgaste es independiente
+del calor y su promedio es exacto: `15 × I ÷ 672` si `I ≤ 336`, 15 si nunca.
+
+Modos: **óptima** (por PC, maximiza `valor_hs × hs − costos` con la grilla
+pasta CPU {∞, 72, 57.6, 48, 36, 24}, pasta GPU {∞, 96, 76.8, 72, 48, 36, 24},
+limpieza {∞, 96, 72, 48, 36, 24, 12}, reparación {∞, 336, 240, 168, 112};
+calor y desgaste se optimizan por separado porque se suman), **auto-pasta**
+(pasta al 80% de su vida: 57.6 / 76.8 h, limpieza cada 48 h, reparación cada
+336 h), **sin cuidado** y **personalizada**.
+
+### 12.7 Bonus de isla
+
+PC "matched": encendida, `hs_sano ≥ 5` y `≥ 25%` del `hs_sano` de la más
+fuerte. Combo por cantidad de matched: 1→0, 2→6, 3→12, 4→18, 5→24, 6→30,
+7→36, 8→48 %. Bonus de nivel de isla (solo con ≥ 2 matched): 2→6, 3→12, 4→15
+… 11→36 %. `hash_isla = Σ hs × (1 + combo + nivel)`.
+
+### 12.8 Recompensas
+
+Se usa el **rendimiento observado**: lo que muestra el juego en *Rewards &
+Claim* ("Estimated hourly earnings", tokens por hora) y el hash de la isla en
+ese momento (bonus incluido; tablero *Hashrate*).
+`tokens_por_100 = por_hora × 24 × 100 ÷ hash_isla_juego` y
+`tokens_día = hash_isla × tokens_por_100 ÷ 100`: lineal, sin dilución (vale
+mientras la isla sea una parte chica de la red). Ese "por hora" ya incluye lo de
+invitados. El "≈ $" de esa pantalla está redondeado al centavo: sirve solo como
+referencia del precio del token.
+
+`USD_día = tokens_día × precio_token`.
+
+Precio del token (CRH, `0xd421141B9d6AfA274572a747E9a3fdd24BA8c400` en
+Robinhood Chain): se ingresa a mano o con el botón "precio actual", que hace
+**un** pedido, solo al apretarlo, a
+`GET https://api.dexscreener.com/latest/dex/tokens/{contrato}` directo desde el
+navegador (gratis, sin key, CORS abierto). De los pools donde CRH es el token
+base en la cadena `robinhood`, se usa el `priceUsd` del de **mayor liquidez**:
+hay pools chicos con precios muy desviados. Binance no lo lista (ni spot ni
+Alpha, revisado el 2026-10-08). El ingreso se reparte entre las PC en
+proporción a su `hs × (1 + bonus)`. El valor de 1 H/s que usa la estrategia
+óptima es el promedio `USD_día ÷ hash_isla` (se itera 2 veces porque depende
+de las pérdidas).
+
+`neto_día = USD_día − electricidad − pasta − limpieza − reparación`.
+
+### 12.9 Infraestructura e inversión
+
+Récord de hash = `Σ hs_sano` (sin bonus). Cada trabajo cuesta
+`base + por_100 × récord ÷ 100`, redondeado hacia arriba al centavo; se estima
+con el récord final, así que es una **cota superior** (el juego cobra con el
+récord del momento en que se encola).
+
+- Parcelas 2–8: $5 + $1/100 H/s; necesitan nivel de isla 1, 2, 3, 4, 6, 8, 10.
+- Niveles de isla 2–11: base 5, 10, 3, 3 … 3; por 100 H/s 1.5 (el 11: 4.5);
+  necesitan 2, 3, 4, 5, 5, 6, 6, 7, 7, 8 parcelas abiertas.
+- Energía 1–13: base 5 (1–4), 12 (5–9), 30 (10–13) + $1/100 H/s.
+
+Se busca el punto fijo: parcelas = max(n.º de PC, las que pide el nivel), nivel
+= max(elegido, el que piden las parcelas, 2 si alguna PC lo exige), energía =
+mínimo nivel cuya capacidad cubre los watts. `inversión = PCs + infraestructura`;
+`retorno (días) = inversión ÷ neto_día`.
+
+### 12.10 Herramientas extra
+
+- **Plan de cuidado desde el estado del juego** (§12.11).
+- **Mejoras**: para cada PC personalizable, cada parte del catálogo que
+  reemplace a la actual (o un ventilador más) y deje el armado válido;
+  `Δneto_día` de la isla con el mismo modo de cuidado y días de retorno
+  `= precio ÷ Δneto`. Se listan las mejores.
+
+### 12.11 Plan de cuidado desde el estado del juego
+
+El panel *Care* de cada PC muestra barras de **vida restante** (redondeadas hacia
+abajo) y la temperatura de cada chip. Como un "97%" es cualquier valor entre 97 y
+98, se toma el medio (`% + 0.5`, tope 100) y se convierte a horas minadas desde
+la última vez:
+
+```
+h_pasta_cpu = (1 − %CPU paste ÷ 100) × 72
+h_pasta_gpu = (1 − %GPU paste ÷ 100) × 96
+h_polvo     = (1 − %Fans ÷ 100) × 48
+h_desgaste  = (1 − %Hardware ÷ 100) × 336
+```
+
+Verificado con una Grain a ~2 h de minado: 97/97/95/99 %, desgaste −0.1%,
+velocidad 99.9%, CPU 45.9 °C (el modelo da 45.86).
+
+**Calibración**: si se ingresa la temperatura de un chip,
+`ajuste = T_juego − T_modelo(h actuales)` y ese ajuste se suma a todo el
+pronóstico de ese chip. Corrige lo que el modelo no sabe (la GPU de Grain/Pebble,
+§12.3). Si un ajuste pasa de ±3 °C se avisa: probablemente los datos no son de
+esa PC.
+
+**Plan**: se simula hacia adelante en pasos de 0.1 h aplicando la estrategia de
+cuidado de la PC (§12.6): cada tarea se hace cuando su reloj llega al intervalo.
+De la primera vez de cada tarea se informa: en cuántas horas, con qué % de la
+barra (`100 × (1 − intervalo ÷ vida)`, 0 si el intervalo pasa la vida) y la
+temperatura antes y después (reparar: el desgaste antes, y 0 después). También se
+muestra el escenario **sin hacer nada**: en cuántas horas llega a 70 °C y la
+temperatura y pérdida máximas.

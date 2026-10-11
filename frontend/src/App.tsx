@@ -13,10 +13,11 @@ import NavBar, { type View } from "./components/NavBar";
 import Estrategia12h from "./components/Estrategia12h";
 import CalculadoraFreon from "./components/CalculadoraFreon";
 import Excavacion from "./components/Excavacion";
+import ComputersRH from "./components/ComputersRH";
 import UndoToast from "./components/UndoToast";
 
 const VIEW_KEY = "roller-view";
-const VIEWS: View[] = ["optimizer", "freon", "estrategia12h", "excavacion"];
+const VIEWS: View[] = ["optimizer", "freon", "estrategia12h", "excavacion", "computersrh"];
 const BOOT_MSGS = [
   "Conectando con el servidor…",
   "Encendiendo los mineros…",
@@ -171,6 +172,8 @@ export default function App() {
         <CalculadoraFreon />
       ) : view === "excavacion" ? (
         <Excavacion />
+      ) : view === "computersrh" ? (
+        <ComputersRH />
       ) : (
         <>
       <div className="row between" style={{ marginBottom: 12 }}>

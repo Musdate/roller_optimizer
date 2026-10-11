@@ -1,10 +1,11 @@
-export type View = "optimizer" | "freon" | "estrategia12h" | "excavacion";
+export type View = "optimizer" | "freon" | "estrategia12h" | "excavacion" | "computersrh";
 
 const TABS: { value: View; label: string }[] = [
   { value: "optimizer", label: "Optimizador de Sala" },
   { value: "freon", label: "Calculadora Freon" },
   { value: "estrategia12h", label: "Estrategia 12h" },
   { value: "excavacion", label: "Excavación SFL" },
+  { value: "computersrh", label: "Computers RH" },
 ];
 
 const MINAR_Y_GANAR_URL = "https://minaryganar.com/rollercoin/room-simulator";
