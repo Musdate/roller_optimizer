@@ -148,7 +148,10 @@ export default function CalculadoraMinado() {
     () => (chosen && data ? computeMining(chosen, power, data.prices) : null),
     [chosen, data, power],
   );
-  const best = r?.rows.find((row) => row.code === r.best);
+  const sel = r?.rows.find((row) => row.code === selected);
+  const selUsd = show === "usd" && sel?.usdDay != null ? sel.usdDay : null;
+  const fmtSel = (days: number) =>
+    !sel ? "—" : selUsd !== null ? fmtUsd(selUsd * days) : `${fmtCoin(sel.perDay * days)} ${sel.code}`;
 
   return (
     <div className="mn">
@@ -188,7 +191,7 @@ export default function CalculadoraMinado() {
                   : `Poder final de la sala: ${formatPower(roomFinal)}`
               }
             >
-              poder de la sala
+              Poder de la Sala
             </button>
             <button
               className="tiny"
@@ -200,7 +203,7 @@ export default function CalculadoraMinado() {
                   : `Poder equivalente de la Calculadora Freon: ${formatPower(freonEq)}`
               }
             >
-              poder equivalente Freon
+              Poder del Freon
             </button>
           </div>
         </div>
@@ -222,12 +225,16 @@ export default function CalculadoraMinado() {
         </label>
 
         <div className="stat mn-hero">
-          <span className="k">Mejor moneda{best ? `: ${best.code}` : ""}</span>
-          <span className="v">{best ? `${fmtUsd(best.usdDay)}/día` : "—"}</span>
-          {best?.usdDay != null && (
-            <span className="muted">
-              {fmtUsd(best.usdDay * 7)}/semana · {fmtUsd(best.usdDay * 30)}/mes
-            </span>
+          <span className="k">Moneda seleccionada{sel ? `: ${sel.code}` : ""}</span>
+          {sel ? (
+            <>
+              <span className="v">{fmtSel(1)}/día</span>
+              <span className="muted">
+                {fmtSel(7)}/semana · {fmtSel(30)}/mes
+              </span>
+            </>
+          ) : (
+            <span className="muted mn-hero-msg">Selecciona una moneda en la tabla</span>
           )}
         </div>
       </div>

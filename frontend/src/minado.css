@@ -35,6 +35,7 @@
   line-height: 1.15;
 }
 .mn-hero .muted { font-size: 12px; font-variant-numeric: tabular-nums; }
+.mn-hero .mn-hero-msg { font-size: 13px; padding: 4px 0; }
 
 .mn-mode {
   display: inline-flex;
