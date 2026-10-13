@@ -21,15 +21,13 @@ export const HAM_SLOTS = [0, 1, 2, 3];
 export const HAM_BP_PER_STAT = [100, 200, 300, 500];
 export const DUTY_TIME_H = [6, 12, 18, 24];
 /** Merma de freon por ronda, en %. */
-export const LEAK_PCT = [9, 7, 5, 3];
+export const LEAK_PCT = [10, 7, 5, 3];
 export const LEAK_TIME_H = [6, 12, 18, 24];
 /** Freon extra al cargar, en %. */
 export const FREON_EXTRA_PCT = [0, 2.5, 5, 10];
 
 /** 100 Freon = 1% de bonus. */
 export const FREON_PER_PCT = 100;
-
-export const MAX_HAMSTERS = 3;
 
 /** Tras cada turno los hámsters descansan 24 h fijas (ver RULES.md §10.5). */
 export const HAM_REST_H = 24;
@@ -69,7 +67,7 @@ export const MODULES: ModuleDef[] = [
     name: "Freon Leak Amount",
     desc: "Merma por ronda",
     branch: "freon",
-    values: ["-9%", "-7%", "-5%", "-3%"],
+    values: ["-10%", "-7%", "-5%", "-3%"],
   },
   {
     key: "leakTime",
@@ -121,13 +119,32 @@ export interface FreonResult {
   freonEffective: number;
   freonBonusBp: number;
   freonCapped: boolean;
+  /** Freon promedio hasta el fin del evento (= freonEffective sin fecha). */
+  freonAvg: number;
+  freonAvgBonusBp: number;
+  /** Horas que quedan hasta el fin del evento; null sin fecha o ya pasada. */
+  hoursLeft: number | null;
+  freonAtEnd: number;
+  /** Horas desde ahora hasta que el freon se agota o termina el evento. */
+  freonLastsH: number;
+  /** El freon termina por el fin del evento y no por agotarse. */
+  freonEndsByEvent: boolean;
   /** Bonus mientras los hámsters trabajan (el pico). */
   peakBonusBp: number;
-  /** Bonus promediado sobre el ciclo turno + descanso (el que rinde a diario). */
+  /** Bonus promediado: hámsters sobre el ciclo, freon con la merma hasta el fin
+   *  del evento. */
   effBonusBp: number;
   hamBonusEffBp: number;
   cycleH: number;
   dutyRatio: number;
+  /** Fracción máxima del tiempo que cada hámster puede ocupar un slot. */
+  hamActiveRatio: number;
+  /** Hay más hámsters que slots: se calcula la rotación ideal. */
+  hamRotating: boolean;
+  hamCount: number;
+  /** Hámsters necesarios para tener todos los slots siempre ocupados. */
+  hamsNeeded: number;
+  usagePct: number;
   dutyTimeH: number;
   leakPct: number;
   leakTimeH: number;
@@ -147,6 +164,8 @@ export function computeFreon(
   levels: Levels,
   stats: number[],
   freonLoaded: number,
+  hoursLeft: number | null = null,
+  usagePct = 100,
 ): FreonResult {
   const upgrades = MODULES.reduce((acc, m) => acc + levels[m.key], 0);
   const rltSpent = MODULES.reduce(
@@ -157,9 +176,11 @@ export function computeFreon(
 
   const slots = HAM_SLOTS[levels.hamPlatforms];
   const bpPerStat = HAM_BP_PER_STAT[levels.hamEfficiency];
-  const hamBonusBp = stats
-    .slice(0, slots)
-    .reduce((acc, s) => acc + Math.max(0, Math.floor(s)) * bpPerStat, 0);
+  const hams = stats
+    .map((s) => Math.max(0, Math.floor(s)))
+    .filter((s) => s > 0)
+    .sort((a, b) => b - a);
+  const hamBonusBp = hams.slice(0, slots).reduce((acc, s) => acc + s * bpPerStat, 0);
 
   const extra = FREON_EXTRA_PCT[levels.freonEfficiency];
   const loaded = Math.max(0, Math.floor(freonLoaded));
@@ -172,9 +193,50 @@ export function computeFreon(
   const dutyTimeH = DUTY_TIME_H[levels.dutyTime];
   const cycleH = dutyTimeH + HAM_REST_H;
   const dutyRatio = dutyTimeH / cycleH;
-  const hamBonusEffBp = Math.round(hamBonusBp * dutyRatio);
-  const rounds = Math.floor(dutyTimeH / leakTimeH);
-  const freonAfterDuty = Math.floor(freonEffective * (1 - leakPct / 100) ** rounds);
+  const T = hoursLeft !== null && hoursLeft > 0 ? hoursLeft : null;
+
+  // RULES.md §10.4: sin rotación y con fecha de fin, horas de turno reales
+  // hasta esa fecha (un turno arranca ahora); con rotación, la del ciclo.
+  const hamRotating = hams.length > slots;
+  let hamActiveRatio = dutyRatio;
+  if (T !== null && !hamRotating) {
+    const cycles = Math.floor(T / cycleH);
+    const activeH = cycles * dutyTimeH + Math.min(T - cycles * cycleH, dutyTimeH);
+    hamActiveRatio = activeH / T;
+  }
+  // Rotación ideal: mochila fraccionaria, los de más stat primero.
+  let freeSlots = slots;
+  let hamIdealBp = 0;
+  for (const st of hams) {
+    if (freeSlots <= 0) break;
+    const x = Math.min(hamActiveRatio, freeSlots);
+    hamIdealBp += st * bpPerStat * x;
+    freeSlots -= x;
+  }
+  const usage = Math.min(100, Math.max(0, usagePct));
+  const hamBonusEffBp = Math.round((hamIdealBp * usage) / 100);
+  const hamsNeeded = slots * Math.ceil(cycleH / dutyTimeH);
+
+  // RULES.md §10.5: merma lineal sobre lo cargado, una vez por ronda.
+  const freonAtRound = (k: number) =>
+    freonEffective * Math.max(0, 1 - (k * leakPct) / 100);
+  const emptyRounds = Math.ceil(100 / leakPct);
+  const emptyH = emptyRounds * leakTimeH;
+  const freonAfterDuty = Math.floor(freonAtRound(Math.floor(dutyTimeH / leakTimeH)));
+
+  let freonAvg = freonEffective;
+  let freonAtEnd = freonEffective;
+  if (T !== null) {
+    let sum = 0;
+    for (let k = 0; k < emptyRounds && k * leakTimeH < T; k++) {
+      sum += freonAtRound(k) * (Math.min((k + 1) * leakTimeH, T) - k * leakTimeH);
+    }
+    freonAvg = sum / T;
+    freonAtEnd = Math.floor(freonAtRound(Math.floor(T / leakTimeH)));
+  }
+  const freonAvgBonusBp = Math.round((freonAvg / FREON_PER_PCT) * 100);
+  const freonEndsByEvent = T !== null && T < emptyH;
+  const freonLastsH = freonEndsByEvent ? T : emptyH;
 
   return {
     upgrades,
@@ -186,11 +248,22 @@ export function computeFreon(
     freonEffective,
     freonBonusBp,
     freonCapped: withExtra > tier.freonLimit,
+    freonAvg,
+    freonAvgBonusBp,
+    hoursLeft: T,
+    freonAtEnd,
+    freonLastsH,
+    freonEndsByEvent,
     peakBonusBp: hamBonusBp + freonBonusBp,
-    effBonusBp: hamBonusEffBp + freonBonusBp,
+    effBonusBp: hamBonusEffBp + freonAvgBonusBp,
     hamBonusEffBp,
     cycleH,
     dutyRatio,
+    hamActiveRatio,
+    hamRotating,
+    hamCount: hams.length,
+    hamsNeeded,
+    usagePct: usage,
     dutyTimeH,
     leakPct,
     leakTimeH,

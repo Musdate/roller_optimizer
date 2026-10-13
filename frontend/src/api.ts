@@ -179,3 +179,32 @@ export interface DiggingState {
 export function fetchDigging(landId: string): Promise<DiggingState> {
   return send(`${BASE}/sunflower/digging/${encodeURIComponent(landId)}`).then((r) => json<DiggingState>(r));
 }
+
+export interface MiningCurrency {
+  code: string;
+  network_power: string; // GH/s
+  block_reward: number; // en la moneda
+  block_seconds: number;
+  users: number;
+}
+
+export interface MiningLeague {
+  level: number;
+  title: string;
+  min_power: string;
+  currencies: MiningCurrency[];
+}
+
+/** Red por liga y precios (RULES.md §12.4). */
+export interface MiningData {
+  fetched_at: number | null;
+  stale: boolean;
+  prices_at: number | null;
+  price_source: string | null;
+  prices: Record<string, number>;
+  leagues: MiningLeague[];
+}
+
+export function fetchMining(): Promise<MiningData> {
+  return send(`${BASE}/mining`).then((r) => json<MiningData>(r));
+}

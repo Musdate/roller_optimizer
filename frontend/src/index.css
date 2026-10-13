@@ -72,6 +72,67 @@ a { color: var(--accent); }
   gap: 6px;
   text-decoration: none;
 }
+.nav-links { display: flex; gap: 4px; }
+.nav-burger,
+.nav-current,
+.nav-backdrop { display: none; }
+
+/* Mobile: las pestañas ya no entran en una línea -> barra con menú y panel
+   lateral que se abre encima del contenido. */
+@media (max-width: 900px) {
+  .nav {
+    align-items: center;
+    gap: 10px;
+    padding-bottom: 8px;
+  }
+  .nav-burger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+  }
+  .nav-current { display: block; font-weight: 600; }
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .nav-links {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 100;
+    width: min(280px, 82vw);
+    flex-direction: column;
+    gap: 2px;
+    padding: 16px 10px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    box-shadow: 8px 0 30px rgba(0, 0, 0, 0.45);
+    overflow-y: auto;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0.2s;
+  }
+  .nav-links.open {
+    transform: none;
+    visibility: visible;
+  }
+  .nav-links .nav-tab {
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .nav-links .nav-tab.active { background: var(--panel-2); }
+}
+@media (max-width: 900px) and (prefers-reduced-motion: reduce) {
+  .nav-links { transition: none; }
+}
 
 .grid {
   display: grid;
@@ -405,6 +466,9 @@ tbody tr.row-sel > td { background: color-mix(in srgb, var(--accent) 13%, transp
    desbordando un panel que siguió angostándose atrás. Por debajo de esto,
    desborda la página entera (scroll horizontal) en vez de seguir achicando. */
 .panel-room { min-width: 528px; }
+/* Toda la pestaña del optimizador comparte ese mínimo: por debajo, scroll
+   horizontal de la vista completa en vez de que solo la sala desborde. */
+.view-optimizer { min-width: 528px; }
 
 /* Sala visual: sin fondo propio, solo los racks flotando. */
 .room-racks-grid {

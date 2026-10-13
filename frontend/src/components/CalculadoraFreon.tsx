@@ -5,13 +5,14 @@ import { useStore, selectRoomList } from "../store";
 import {
   DEFAULT_LEVELS,
   LEVEL_LABELS,
-  MAX_HAMSTERS,
   MODULES,
   computeFreon,
   type Levels,
   type Lvl,
   type ModKey,
 } from "../freon";
+import { fetchMining, type MiningData } from "../api";
+import { FREON_EQ_KEY, leagueFor, perDayFor, readMiningPrefs } from "../mining";
 import "../freon.css";
 
 const UNITS = ["GH", "TH", "PH", "EH", "ZH"] as const;
@@ -30,9 +31,21 @@ interface Saved {
   finalNum: string;
   finalUnit: Unit;
   freon: string;
-  stats: string[];
+  /** Fin del evento de freon, valor de un input datetime-local (hora local). */
+  deadline: string;
+  /** Vida, fuerza y suerte de cada hámster; para el cálculo solo importa la suma. */
+  hams: HamStats[];
+  /** % de uso real de los slots de hámsters (descuenta huecos de la rotación). */
+  usage: string;
   levels: Levels;
 }
+
+type HamStats = [string, string, string];
+
+const HAM_PARAMS = ["Vida", "Fuerza", "Suerte"] as const;
+const EMPTY_HAM: HamStats = ["", "", ""];
+
+const hamSum = (h: HamStats) => h.reduce((acc, x) => acc + (Number(x) || 0), 0);
 
 const EMPTY: Saved = {
   powerNum: "",
@@ -40,7 +53,9 @@ const EMPTY: Saved = {
   finalNum: "",
   finalUnit: "PH",
   freon: "",
-  stats: ["", "", ""],
+  deadline: "",
+  hams: [EMPTY_HAM],
+  usage: "100",
   levels: DEFAULT_LEVELS,
 };
 
@@ -48,11 +63,15 @@ function load(): Saved {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return EMPTY;
-    const p = JSON.parse(raw) as Partial<Saved>;
+    const p = JSON.parse(raw) as Partial<Saved> & { stats?: string[] };
+    // Antes había un solo stat por hámster (ya sumado): se conserva en "vida".
+    const hams = p.hams ?? (p.stats ?? []).map((x): HamStats => [x, "", ""]);
+    const filled = hams.filter((h) => h.some((x) => x.trim() !== ""));
+    const { stats: _old, ...rest } = p;
     return {
       ...EMPTY,
-      ...p,
-      stats: Array.from({ length: MAX_HAMSTERS }, (_, i) => p.stats?.[i] ?? ""),
+      ...rest,
+      hams: filled.length ? filled : [EMPTY_HAM],
       levels: { ...DEFAULT_LEVELS, ...(p.levels ?? {}) },
     };
   } catch {
@@ -67,6 +86,39 @@ function splitPower(v: bigint): { num: string; unit: Unit } {
   return { num: String(Number(num)), unit: sym.replace("/s", "") as Unit };
 }
 
+function formatHours(h: number): string {
+  const d = Math.floor(h / 24);
+  const rest = Math.floor(h % 24);
+  return d > 0 ? `${d} d ${rest} h` : `${rest} h`;
+}
+
+const COIN_FMT = new Intl.NumberFormat("es", { maximumSignificantDigits: 4 });
+
+function fmtUsd(x: number): string {
+  if (x !== 0 && Math.abs(x) < 0.01) return `$${COIN_FMT.format(x)}`;
+  return `$${x.toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+type Earn =
+  | { msg: string }
+  | {
+      coin: string;
+      extra: number;
+      usd: number | null;
+      league: string;
+      dayEff: number;
+      dayNow: number;
+      days: number;
+    };
+
+const END_FMT: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+};
+
 function parseOrZero(num: string, unit: Unit): bigint {
   if (!num.trim()) return 0n;
   try {
@@ -79,8 +131,29 @@ function parseOrZero(num: string, unit: Unit): bigint {
 
 export default function CalculadoraFreon() {
   const [state, setState] = useState<Saved>(load);
-  const [copied, setCopied] = useState(false);
-  const { powerNum, powerUnit, finalNum, finalUnit, freon, stats, levels } = state;
+  const { powerNum, powerUnit, finalNum, finalUnit, freon, deadline, hams, usage, levels } =
+    state;
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const [mining, setMining] = useState<MiningData | null>(null);
+  const [miningPrefs] = useState(readMiningPrefs);
+  useEffect(() => {
+    if (!miningPrefs.coin) return;
+    let alive = true;
+    fetchMining()
+      .then((d) => alive && setMining(d))
+      .catch(() => {
+        // sin datos de red: la tarjeta de ganancia queda sin calcular
+      });
+    return () => {
+      alive = false;
+    };
+  }, [miningPrefs.coin]);
 
   const roomList = useStore(selectRoomList);
   const roomTotals = useMemo(
@@ -98,8 +171,19 @@ export default function CalculadoraFreon() {
 
   const setLevel = (key: ModKey, lvl: Lvl) =>
     setState((s) => ({ ...s, levels: { ...s.levels, [key]: lvl } }));
-  const setStat = (i: number, v: string) =>
-    setState((s) => ({ ...s, stats: s.stats.map((x, j) => (j === i ? v : x)) }));
+  const setHamParam = (i: number, k: number, v: string) =>
+    setState((s) => ({
+      ...s,
+      hams: s.hams.map((h, j) =>
+        j === i ? (h.map((x, n) => (n === k ? v : x)) as HamStats) : h,
+      ),
+    }));
+  const addHam = () => setState((s) => ({ ...s, hams: [...s.hams, EMPTY_HAM] }));
+  const removeHam = (i: number) =>
+    setState((s) => ({
+      ...s,
+      hams: s.hams.length > 1 ? s.hams.filter((_, j) => j !== i) : [EMPTY_HAM],
+    }));
 
   function importRoom() {
     const p = splitPower(roomTotals.rawPower);
@@ -121,9 +205,20 @@ export default function CalculadoraFreon() {
   // Sin poder final se asume que no hay bonus de sala: el final es el bruto.
   const roomFinal = typedFinal >= raw ? typedFinal : raw;
 
+  const deadlineMs = deadline ? new Date(deadline).getTime() : NaN;
+  const hoursLeft = Number.isFinite(deadlineMs) ? (deadlineMs - now) / 3600000 : null;
+  const deadlinePassed = hoursLeft !== null && hoursLeft <= 0;
+
   const r = useMemo(
-    () => computeFreon(levels, stats.map((s) => Number(s) || 0), Number(freon) || 0),
-    [levels, stats, freon],
+    () =>
+      computeFreon(
+        levels,
+        hams.map(hamSum),
+        Number(freon) || 0,
+        hoursLeft,
+        usage.trim() === "" ? 100 : Number(usage) || 0,
+      ),
+    [levels, hams, freon, hoursLeft, usage],
   );
 
   // El bonus del juego es aditivo (§3), así que el freon se suma sobre el
@@ -134,31 +229,42 @@ export default function CalculadoraFreon() {
   const gain = effective - roomFinal;
   const effText = formatPower(effective);
 
-  async function copyEff() {
-    // navigator.clipboard falla si la pestaña no tiene foco o el navegador
-    // niega el permiso; execCommand sigue andando en ese caso.
-    let ok = false;
+  // RULES.md §10.6: lo que se mina de más con la máquina hasta el fin del evento.
+  const earn = ((): Earn => {
+    const coin = miningPrefs.coin;
+    if (!coin) return { msg: "Selecciona una moneda en la Calculadora de minado" };
+    if (r.hoursLeft === null) return { msg: "Pon la fecha de fin del evento" };
+    if (!mining) return { msg: "Cargando la red…" };
+    const league =
+      (miningPrefs.league !== "auto" &&
+        mining.leagues.find((l) => String(l.level) === miningPrefs.league)) ||
+      leagueFor(mining.leagues, roomFinal);
+    const cur = league?.currencies.find((c) => c.code === coin);
+    if (!league || !cur) return { msg: `${coin} no se mina en ${league?.title ?? "esa liga"}` };
+    const dayEff = perDayFor(cur, Number(effective));
+    const dayNow = perDayFor(cur, Number(roomFinal));
+    const days = r.hoursLeft / 24;
+    const extra = (dayEff - dayNow) * days;
+    const price = mining.prices[coin];
+    return {
+      coin,
+      extra,
+      usd: price === undefined ? null : extra * price,
+      league: league.title,
+      dayEff,
+      dayNow,
+      days,
+    };
+  })();
+
+  useEffect(() => {
     try {
-      await navigator.clipboard.writeText(effText);
-      ok = true;
+      localStorage.setItem(FREON_EQ_KEY, effective.toString());
     } catch {
-      const ta = document.createElement("textarea");
-      ta.value = effText;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        ok = document.execCommand("copy");
-      } catch {
-        ok = false;
-      }
-      ta.remove();
+      // localStorage no disponible: la calculadora de minado no lo ofrece, nada más.
     }
-    if (!ok) return;
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1500);
-  }
+  }, [effective]);
+
 
   return (
     <div className="frn">
@@ -256,32 +362,173 @@ export default function CalculadoraFreon() {
               />
             </label>
 
-            <div className="stat">
-              <span className="k">Stats de los hámsters ({r.slots} en sala)</span>
-              <div className="frn-hams">
-                {stats.map((v, i) => (
-                  <input
-                    key={i}
-                    type="number"
-                    min={0}
-                    step={1}
-                    placeholder={i < r.slots ? `#${i + 1}` : "—"}
-                    value={v}
-                    disabled={i >= r.slots}
-                    onChange={(e) => setStat(i, e.target.value)}
-                  />
-                ))}
+            <label className="stat frn-field">
+              <span className="k">
+                Fin del evento
+                {r.hoursLeft !== null && <> (quedan {formatHours(r.hoursLeft)})</>}
+              </span>
+              <input
+                type="datetime-local"
+                value={deadline}
+                onChange={(e) => setState((s) => ({ ...s, deadline: e.target.value }))}
+              />
+            </label>
+
+            <section className="frn-ham-section" aria-label="Hámsters">
+              <div className="frn-ham-title">
+                <span>Hámsters</span>
+                <span className="muted">
+                  {r.hamCount} {r.hamCount === 1 ? "hámster" : "hámsters"} · {r.slots} slots
+                </span>
               </div>
-            </div>
+              <div className="frn-hams">
+                <div className="frn-ham-head" aria-hidden>
+                  <span>#</span>
+                  {HAM_PARAMS.map((label) => (
+                    <span key={label}>{label}</span>
+                  ))}
+                  <span>Total</span>
+                  <span />
+                </div>
+                {hams.map((h, i) => (
+                  <div className="frn-ham" key={i}>
+                    <span className="frn-ham-n">{i + 1}</span>
+                    {HAM_PARAMS.map((label, k) => (
+                      <input
+                        key={label}
+                        type="number"
+                        min={0}
+                        step={1}
+                        placeholder={label}
+                        aria-label={`${label} del hámster ${i + 1}`}
+                        value={h[k]}
+                        onChange={(e) => setHamParam(i, k, e.target.value)}
+                      />
+                    ))}
+                    <span className="frn-ham-sum" title="Suma de los tres">
+                      {hamSum(h) || "—"}
+                    </span>
+                    <button
+                      className="tiny"
+                      onClick={() => removeHam(i)}
+                      title="Quitar hámster"
+                      aria-label={`Quitar hámster ${i + 1}`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <button className="tiny" onClick={addHam}>
+                  + hámster
+                </button>
+              </div>
+              {r.slots > 0 && (
+                <span className="muted frn-hams-need">
+                  Para tener los {r.slots} slots siempre ocupados necesitas {r.hamsNeeded}{" "}
+                  hámsters (tienes {r.hamCount}).
+                </span>
+              )}
+
+              <label className="stat frn-field">
+                <span className="k">
+                  Uso real de los slots (%){" "}
+                  <span className="frn-info" tabIndex={0} aria-label="Qué es">
+                    i
+                    <span className="frn-info-tip" role="tooltip">
+                      Qué parte del tiempo tus slots de hámsters están ocupados de verdad.
+                      La rotación ideal supone que, apenas un hámster termina su turno, entra
+                      otro; en la práctica quedan huecos (expediciones, turnos que no
+                      arrancas a tiempo). Este % descuenta esos huecos solo del aporte de los
+                      hámsters: con 80%, su bonus promedio queda en el 80%. El freon no se ve
+                      afectado. Por defecto, 100%.
+                    </span>
+                  </span>
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={5}
+                  value={usage}
+                  onChange={(e) => setState((s) => ({ ...s, usage: e.target.value }))}
+                />
+              </label>
+            </section>
           </div>
 
           <div className="frn-result">
             <div className="frn-hero">
-              <span className="k">Poder equivalente constante</span>
-              <span className="v">{effText}</span>
-              <button className="tiny frn-copy" onClick={copyEff}>
-                {copied ? "copiado" : "copiar"}
-              </button>
+              <span className="k">
+                Ganancia hasta el fin del evento{" "}
+                <span className="frn-info" tabIndex={0} aria-label="Cómo se calcula">
+                  i
+                  <span className="frn-info-tip" role="tooltip">
+                    Lo que minas de más con la máquina activa, en la moneda marcada en la
+                    Calculadora de minado. Se usa el poder equivalente ({effText}): el poder
+                    fijo que mina lo mismo que tu ciclo real.{" "}
+                    {r.slots === 0 ? (
+                      <>Hámsters: sin slots (sube Ham Platforms), no aportan.</>
+                    ) : (
+                      <>
+                        {r.hamRotating ? (
+                          <>
+                            Hámsters: rotación ideal de {r.hamCount} en {r.slots} slots, los
+                            de más stat primero, cada uno como mucho{" "}
+                            {(r.hamActiveRatio * 100).toFixed(0)}% del tiempo ({r.dutyTimeH} h
+                            + 24 h de descanso)
+                          </>
+                        ) : (
+                          <>
+                            Hámsters {bpToPct(r.hamBonusBp)} durante {r.dutyTimeH} h + 24 h de
+                            descanso = {(r.hamActiveRatio * 100).toFixed(0)}%{" "}
+                            {r.hoursLeft !== null
+                              ? "del tiempo que queda del evento"
+                              : "del ciclo"}
+                          </>
+                        )}
+                        , con uso real {r.usagePct}% → {bpToPct(r.hamBonusEffBp)}.
+                      </>
+                    )}{" "}
+                    {r.hoursLeft !== null ? (
+                      <>
+                        Freon {bpToPct(r.freonBonusBp)} al cargar, que con la merma
+                        (−{r.leakPct}% cada {r.leakTimeH} h) promedia{" "}
+                        {bpToPct(r.freonAvgBonusBp)} hasta el fin del evento.
+                      </>
+                    ) : (
+                      <>Freon {bpToPct(r.freonBonusBp)} continuo, sin merma (no hay fecha de fin).</>
+                    )}{" "}
+                    {"coin" in earn ? (
+                      <>
+                        En {earn.league}, con ese poder minas{" "}
+                        {COIN_FMT.format(earn.dayEff)} {earn.coin}/día; con tu poder final
+                        actual ({formatPower(roomFinal)}), {COIN_FMT.format(earn.dayNow)}{" "}
+                        {earn.coin}/día. La diferencia por los{" "}
+                        {earn.days.toLocaleString("es", { maximumFractionDigits: 1 })} días que
+                        quedan del evento da {COIN_FMT.format(earn.extra)} {earn.coin}.
+                      </>
+                    ) : (
+                      <>
+                        Se calcula con la red de esa moneda: lo que minas por día con el poder
+                        equivalente menos lo que minas con tu poder final actual, por los días
+                        que quedan del evento.
+                      </>
+                    )}{" "}
+                    La liga es la elegida en la Calculadora de minado (o la de tu poder
+                    final), y la red es una foto de ahora.
+                  </span>
+                </span>
+              </span>
+              {"msg" in earn ? (
+                <span className="muted frn-earn-msg">{earn.msg}</span>
+              ) : (
+                <>
+                  <span className="v">
+                    +{COIN_FMT.format(earn.extra)} {earn.coin}
+                  </span>
+                  {earn.usd !== null && <span className="muted">≈ {fmtUsd(earn.usd)}</span>}
+                </>
+              )}
             </div>
             <div className="stat-row">
               <div className="stat">
@@ -296,17 +543,25 @@ export default function CalculadoraFreon() {
                 <span className="k">Bonus efectivo</span>
                 <span className="v">{bpToPct(r.effBonusBp)}</span>
               </div>
+              {r.freonEffective > 0 && (
+                <div className="stat">
+                  <span className="k">
+                    Freon hasta{r.freonEndsByEvent ? " (fin del evento)" : ""}
+                  </span>
+                  <span className="v">
+                    {new Date(now + r.freonLastsH * 3600000).toLocaleString("es", END_FMT)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
-          <p className="muted frn-note">
-            Hámsters {bpToPct(r.hamBonusBp)} durante {r.dutyTimeH} h + 24 h de
-            descanso = {(r.dutyRatio * 100).toFixed(0)}% del ciclo →{" "}
-            {bpToPct(r.hamBonusEffBp)}. Freon {bpToPct(r.freonBonusBp)} continuo.
-            El poder equivalente es un hashrate, no una cantidad: mantenido fijo
-            mina lo mismo que tu ciclo real. Pégalo en la calculadora de profit y
-            ella te da el día y el mes.
-          </p>
+          {deadlinePassed && (
+            <div className="warn-box" style={{ marginTop: 10 }}>
+              La fecha de fin del evento ya pasó: se calcula sin merma y con el
+              ciclo completo de los hámsters.
+            </div>
+          )}
 
           {r.freonCapped && (
             <div className="warn-box" style={{ marginTop: 10 }}>
@@ -361,12 +616,21 @@ export default function CalculadoraFreon() {
               {r.dutyTimeH} h + 24 h
             </span>
           </div>
-          <div className="stat">
-            <span className="k">
-              Freon tras {r.dutyTimeH} h (−{r.leakPct}% cada {r.leakTimeH} h)
-            </span>
-            <span className="v">{groupDigits(String(r.freonAfterDuty))}</span>
-          </div>
+          {r.hoursLeft !== null ? (
+            <div className="stat">
+              <span className="k">
+                Freon al fin del evento (−{r.leakPct}% cada {r.leakTimeH} h)
+              </span>
+              <span className="v">{groupDigits(String(r.freonAtEnd))}</span>
+            </div>
+          ) : (
+            <div className="stat">
+              <span className="k">
+                Freon tras {r.dutyTimeH} h (−{r.leakPct}% cada {r.leakTimeH} h)
+              </span>
+              <span className="v">{groupDigits(String(r.freonAfterDuty))}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>

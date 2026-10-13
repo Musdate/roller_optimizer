@@ -145,6 +145,32 @@ class LeagueOut(BaseModel):
     image: str = ""
 
 
+class MiningCurrencyOut(BaseModel):
+    code: str
+    network_power: str  # GH/s
+    block_reward: float  # en la moneda
+    block_seconds: int
+    users: int
+
+
+class MiningLeagueOut(BaseModel):
+    level: int
+    title: str
+    min_power: str
+    currencies: list[MiningCurrencyOut]
+
+
+class MiningOut(BaseModel):
+    """Red por liga y precios, RULES.md §12.4."""
+
+    fetched_at: int | None
+    stale: bool
+    prices_at: int | None
+    price_source: str | None
+    prices: dict[str, float]
+    leagues: list[MiningLeagueOut]
+
+
 class ParseInventoryBody(BaseModel):
     text: str = Field(min_length=1, max_length=200_000)
 

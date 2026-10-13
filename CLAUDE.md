@@ -109,6 +109,10 @@ CORS real).
 - **`app/leagues.py`** — ligas (`/api/League` de la misma API; `minPower` en
   GH/s, tope = `minPower` de la siguiente − 1). Seed en
   `app/data/leagues_seed.json`, refresco en segundo plano ≤ 1 vez/24 h.
+- **`app/mining.py`** — calculadora de minado (RULES.md §12): red por liga y
+  moneda (`currencies` del mismo `/api/League`; `payoutAmount` con divisores
+  propios, **SAT es 1e10**) y precios (Binance, respaldo CoinGecko). Todo en
+  memoria 5 min, sin seed; `GET /api/mining`.
 - **`app/sunflower.py`** — pestaña "Excavación SFL" (RULES.md §11): patrones del
   día y hoyos excavados de una granja de Sunflower Land vía su API comunitario
   (`SFL_API_KEY` desde el entorno o `backend/.env`; pedidos serializados cada
@@ -123,7 +127,8 @@ CORS real).
 ### Frontend — React + Zustand, sin router
 
 - **`src/App.tsx` + `src/components/NavBar.tsx`** — navbar de pestañas
-  (Optimizador de Sala, Calculadora Freon, Estrategia 12h, Excavación SFL). Cada
+  (Optimizador de Sala, Calculadora Freon, Calculadora de minado, Estrategia 12h,
+  Excavación SFL); bajo 900 px pasa a un botón de menú con panel lateral. Cada
   pestaña es un enlace `#vista` (se puede abrir en otra pestaña con la rueda del
   mouse); al cargar manda el `#` de la URL y, si no hay, la última usada en
   `localStorage` (`roller-view`). El *polling* de catálogo sigue vivo en todas.
@@ -134,6 +139,14 @@ CORS real).
   app vanilla `barras-12h`: rastrea las barras de 12 h de los 15 minijuegos.
   Estado propio en `localStorage` (clave `ronda12-data-v3`), independiente del
   store del optimizador. Estilos con prefijo `s12-` sobre la paleta del optimizador.
+
+- **Vista "Calculadora de minado"** (`src/components/CalculadoraMinado.tsx` +
+  `src/mining.ts` lógica pura + `src/minado.css`) — USD por bloque/día/mes por
+  moneda, cada una con el 100% del poder (RULES.md §12.3). Toma el poder de la sala o el poder
+  equivalente que la Calculadora Freon publica en `localStorage`
+  (`roller-freon-eq`). Estado propio en `roller-minado`, con la fila
+  marcada: la Calculadora Freon la lee para estimar cuánto más se mina hasta el
+  fin del evento (RULES.md §10.6).
 
 - **Vista "Excavación SFL"** (`src/components/Excavacion.tsx` +
   `src/excavacion.ts` solver puro + `src/excavacion.worker.ts`) — probabilidad

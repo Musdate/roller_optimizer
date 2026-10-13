@@ -80,14 +80,88 @@
 @media (max-width: 520px) {
   .frn-powers { grid-template-columns: 1fr; }
 }
-.frn-hams {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+.frn-ham-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel-2) 55%, transparent);
 }
-.frn-hams input:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+.frn-ham-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 600;
+}
+.frn-ham-title .muted { font-weight: 400; font-size: 12px; }
+.frn-hams {
+  --frn-ham-cols: 28px repeat(3, minmax(0, 1fr)) 52px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.frn-hams > button { align-self: flex-start; }
+.frn-ham-head {
+  display: grid;
+  grid-template-columns: var(--frn-ham-cols);
+  padding: 0 1px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.frn-ham-head span { padding: 0 8px; }
+.frn-ham-head span:first-child { padding: 0; text-align: center; }
+/* inputs + total + × como un solo control, con divisiones entre ellos */
+.frn-ham {
+  display: grid;
+  grid-template-columns: var(--frn-ham-cols);
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.frn-ham:focus-within { outline: 1px solid var(--accent); }
+.frn-ham-n {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.frn-ham-sum {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-left: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.frn-ham input {
+  min-width: 0;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  outline: none;
+}
+.frn-ham button {
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  padding: 0 9px;
+  color: var(--muted);
+}
+.frn-ham button:hover { color: var(--bad); }
+.frn-hams-need {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
 }
 .frn-field input { width: 100%; }
 
@@ -105,6 +179,7 @@
 .frn-hero {
   display: flex;
   flex-direction: column;
+  align-self: stretch;
   gap: 2px;
   padding: 8px 16px;
   border-radius: 10px;
@@ -126,20 +201,48 @@
 }
 .frn-gain { color: var(--good); }
 
-/* Un clic selecciona el número entero: si el portapapeles falla (pestaña sin
-   foco, permiso denegado) igual se puede copiar a mano. */
-.frn-hero .v { user-select: all; }
-.frn-copy {
-  align-self: flex-start;
-  margin-top: 4px;
-  padding: 2px 7px;
-  font-size: 11px;
-}
+.frn-earn-msg { max-width: 220px; font-size: 13px; }
 
-.frn-note {
-  margin: 10px 0 0;
-  font-size: 12px;
+/* Un clic selecciona el número entero, para copiarlo a mano. */
+.frn-hero .v { user-select: all; }
+/* (i) con la explicación del poder equivalente: hover en desktop, foco al tocar. */
+.frn-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  text-transform: none;
+  cursor: help;
+  vertical-align: 1px;
 }
+.frn-info-tip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -8px;
+  z-index: 20;
+  width: min(320px, 80vw);
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.45;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.frn-info:hover .frn-info-tip,
+.frn-info:focus .frn-info-tip { display: block; }
 
 /* --- módulos --- */
 

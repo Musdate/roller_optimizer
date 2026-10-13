@@ -1,0 +1,84 @@
+/* Vista "Calculadora de minado". Clases con prefijo mn- para no colisionar
+   con el optimizador. */
+
+.mn {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mn-inputs {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(180px, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 820px) {
+  .mn-inputs { grid-template-columns: 1fr; }
+}
+.mn-field { gap: 4px; }
+.mn-field > select { width: 100%; }
+.mn-sources { margin-top: 4px; gap: 6px; }
+
+.mn-hero {
+  gap: 2px;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 10px;
+}
+.mn-hero .k { color: var(--accent); }
+.mn-hero .v {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.15;
+}
+.mn-hero .muted { font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.mn-mode {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.mn-mode button {
+  border: 0;
+  border-radius: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--muted);
+}
+.mn-mode button + button { border-left: 1px solid var(--border); }
+.mn-mode button.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+.mn-table-wrap { overflow-x: auto; }
+.mn-table td { vertical-align: middle; font-variant-numeric: tabular-nums; }
+.mn-row { cursor: pointer; }
+.mn-row:hover td { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+.mn-row:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.mn-selected td,
+.mn-selected:hover td { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+.mn-coin {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+.mn-coin { line-height: 22px; }
+.mn-coin img { flex: none; display: block; }
+.mn-sub { font-size: 11px; }
+.mn-best .mn-usd {
+  color: var(--good);
+  font-weight: 600;
+}
+
+.mn-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+}

@@ -845,7 +845,7 @@ los seis al máximo: 810 RLT).
 | Ham Platforms | hámsters trabajando | — | 1 | 2 | 3 |
 | Ham Efficiency | bonus por punto de stat | 1% | 2% | 3% | 5% |
 | Duty Time | tiempo de trabajo | 6 h | 12 h | 18 h | 24 h |
-| Freon Leak Amount | merma por ronda | -9% | -7% | -5% | -3% |
+| Freon Leak Amount | merma por ronda | -10% | -7% | -5% | -3% |
 | Freon Leak Time | duración de la ronda | 6 h | 12 h | 18 h | 24 h |
 | Freon Efficiency | freon extra al cargar | — | +2.5% | +5% | +10% |
 
@@ -869,13 +869,16 @@ que se expresa en bp igual que el resto de la app (§3):
 ```
 freon_efectivo = min( floor(freon_cargado × (1 + extra%)), límite_del_nivel )
 bonus_freon_bp = freon_efectivo × 100 / 100        # 100 freon = 1% = 100 bp
-bonus_ham_bp   = Σ stat_i × bp_por_stat            # solo los primeros N hámsters,
+bonus_ham_bp   = Σ stat_i × bp_por_stat            # los N hámsters de más stat,
                                                    # N = slots de Ham Platforms
 bonus_pico_bp  = bonus_freon_bp + bonus_ham_bp   # mientras el turno está activo
 F = P · (10000 + bonus_pico_bp) / 10000            # misma fórmula que §3
 ```
 
 Ese es el **pico**. Lo que rinde a lo largo del día sale de §10.4.
+
+`stat_i` es la **suma de los tres parámetros** del hámster: vida + fuerza +
+suerte (se ingresan por separado; solo importa la suma).
 
 `bp_por_stat` es 100 / 200 / 300 / 500 según Ham Efficiency (1% = 100 bp), así
 que el bonus de hámsters siempre queda en bp enteros.
@@ -910,26 +913,108 @@ hámsters equivale a promediar el poder:
 
 ```
 bonus_ham_efectivo = bonus_ham × duty_time / (duty_time + 24)
-bonus_efectivo     = bonus_freon + bonus_ham_efectivo
+bonus_efectivo     = bonus_freon_prom + bonus_ham_efectivo
 poder_equivalente  = poder_final_sala + poder_bruto × bonus_efectivo / 10000
 ```
+
+Con **fecha de fin del evento** (§10.5) el promedio de los hámsters se toma
+sobre las `T` horas que quedan, suponiendo que un turno arranca **ahora**
+(`c = floor(T / ciclo)` ciclos completos, `r = T − c·ciclo`):
+
+```
+horas_activas      = c · duty_time + min(r, duty_time)
+bonus_ham_efectivo = bonus_ham × horas_activas / T
+```
+
+**Varios hámsters: rotación.** El descanso de 24 h es por hámster, así que con
+más hámsters que slots se puede rotar y mantener los slots ocupados. Se calcula
+la **rotación ideal** (cota superior) como una mochila fraccionaria: cada
+hámster puede ocupar un slot como mucho una fracción `cap` del tiempo, los slots
+dan `N` en paralelo, y conviene poner primero a los de más stat:
+
+```
+cap = duty_time / (duty_time + 24)        si hay más hámsters que slots
+cap = horas_activas / T (o el mismo cap del ciclo sin fecha)   si no hay más
+x_i = min(cap, N − Σ x_j de los anteriores)    # recorriendo de mayor a menor stat
+bonus_ham_efectivo = Σ stat_i × bp_por_stat × x_i × uso_real%
+```
+
+Con rotación se usa el `cap` del ciclo aunque haya fecha de fin: con varios
+hámsters entrando y saliendo, el "un turno arranca ahora" deja de importar.
+Para mantener un slot siempre ocupado hacen falta `ceil((duty_time + 24) /
+duty_time)` hámsters (6 h → 5, 12 h → 3, 18 h → 3, 24 h → 2), por `N` slots.
+
+La rotación real nunca es perfecta (expediciones, huecos entre turnos):
+**`uso_real%`** (lo ingresa el usuario, 100% por defecto) descuenta esos huecos
+sobre el aporte de los hámsters.
 
 `poder_final_sala` ya trae el bonus de la sala, por eso el aporte del freon se
 suma aparte sobre el poder bruto. Ese `poder_equivalente` es el número que se
 pega en una calculadora de profit externa: ella devuelve el minado diario y
-mensual ya correcto, sin tener que replicarla.
+mensual ya correcto, sin tener que replicarla. Con fecha de fin, vale para el
+período que queda del evento (al terminar, el juego quita el freon y todos los
+bonus).
 
 **Supuesto**: el bonus del freon cargado aplica de forma continua (la merma
 sigue corriendo igual) y solo el aporte de los hámsters es intermitente. Si
 resulta que el freon también se corta fuera del turno, el factor del ciclo pasa
 a aplicarse a `bonus_efectivo` completo.
 
-### 10.5 Merma
+### 10.5 Merma, fin del evento y término del freon
 
-El Freon se pierde cada ronda: `restante = freon × (1 − merma%)^rondas`, con
-`rondas = floor(duty_time / leak_time)`. La calculadora solo lo muestra como
-referencia (cuánto Freon queda al terminar el turno de los hámsters); el bonus
-que informa es el del momento de cargar.
+**Supuesto (sin confirmar en la documentación oficial, que no dice sobre qué
+cantidad se aplica):** la merma es **lineal sobre lo cargado**. Al cumplirse
+cada `leak_time` se descuenta `merma% × freon_efectivo`, siempre la misma
+cantidad, así que durante la ronda `k` (contando desde 0) queda:
+
+```
+freon(k) = freon_efectivo × max(0, 1 − k · merma%)
+```
+
+10.000 con −10% cada 6 h: 10.000 las primeras 6 h, 9.000 las siguientes, 8.000…
+y se acaba a las 10 rondas (60 h). El freon se agota al cumplirse
+`ceil(1 / merma%)` rondas, es decir a las `ceil(1 / merma%) × leak_time` horas
+de cargarlo.
+
+Se supone que el freon se carga **ahora**. **Fecha de término del freon** = la
+más temprana entre la de agotamiento y la de fin del evento (el evento quita el
+freon al terminar).
+
+Con **fecha de fin del evento** (`T` = horas restantes, `L = leak_time`), el
+bonus del freon pasa a ser el promedio hasta esa fecha:
+
+```
+freon_prom       = Σ_k freon(k) · |[k·L, (k+1)·L) ∩ [0, T)| / T
+bonus_freon_prom = freon_prom × 100 / 100           # bp, igual que §10.3
+freon_al_final   = freon(floor(T / L))
+```
+
+Ese promedio es el que entra en `bonus_efectivo` (§10.4). Sin fecha (o con la
+fecha ya pasada) se usa el freon del momento de cargar, sin merma, y los
+hámsters con la fracción del ciclo.
+
+El pico (§10.3) siempre usa el freon del momento de cargar.
+
+### 10.6 Ganancia de activar la máquina
+
+El poder equivalente no se muestra: solo se usa para este cálculo. La tarjeta
+principal de la vista es cuánto más se mina **de aquí al fin del evento** por
+tener la máquina activa, en la moneda marcada en la tabla de
+la Calculadora de minado (§12). Usa la fórmula de §12.3 con la red de esa
+moneda:
+
+```
+extra = (día(poder_equivalente) − día(poder_final_sala)) × T / 24
+usd   = extra × precio
+```
+
+- `T` = horas que quedan del evento (§10.5). El poder equivalente ya está
+  promediado sobre esas horas, así que basta multiplicar por los días.
+- **Liga**: la elegida a mano en la Calculadora de minado; si allí está en
+  automático, la que corresponde al poder final de la sala. Se usa la misma
+  liga para los dos poderes (el freon no cambia de liga).
+- Sin moneda marcada se pide marcar una; sin fecha de fin (o ya pasada), se
+  pide la fecha. Si la moneda no se mina en esa liga, se avisa.
 
 ---
 
@@ -1142,3 +1227,112 @@ capítulo) con las excavaciones que quedan.
 
 Errores: 404 granja inexistente, 429 cola llena o límite del API, 502 el API
 de Sunflower Land falló, 503 falta configurar la key.
+
+---
+
+## 12. Calculadora de minado (vista aparte)
+
+Cuánto mina un poder dado en cada moneda de una liga: por bloque, día, semana
+y mes, en la moneda y en USD. Es la "calculadora de profit" donde se pega el
+poder equivalente de la Calculadora Freon (§10.4).
+
+### 12.1 Datos de la red
+
+- Fuente: el mismo `GET https://api.rollercoincalculator.app/api/League` de
+  §6.3. Cada liga trae `currencies`, una entrada por moneda que se mina en ella:
+
+  | Campo | Qué es |
+  | --- | --- |
+  | `name` | clave de la moneda en el juego (`SAT`, `LTC_SMALL`, `RLT`…) |
+  | `totalPower` | poder de la red en esa moneda y liga, en **GH/s** |
+  | `payoutAmount` | recompensa por bloque, en unidades mínimas (ver divisores) |
+  | `duration` | duración del bloque, en segundos |
+  | `userCount` | mineros en esa moneda y liga |
+
+- El poder de red cambia bloque a bloque: se guarda en memoria **5 minutos**
+  (aparte del refresco de 24 h de §6.3). Si la API falla (429 incluido) se
+  sirve lo último que había, marcado `stale`. Si nunca hubo datos, 503.
+
+- **Divisores** (`payoutAmount / divisor` = monedas por bloque):
+
+  | Clave | Moneda | Divisor |
+  | --- | --- | --- |
+  | `RLT`, `RST`, `HMT` | RLT, RST, HMT | 1e6 |
+  | `SAT` | BTC | **1e10** |
+  | `LTC_SMALL` | LTC | 1e8 |
+  | `BNB_SMALL`, `ETH_SMALL`, `TRX_SMALL` | BNB, ETH, TRX | 1e10 |
+  | `MATIC_SMALL` | POL | 1e10 |
+  | `SOL_SMALL` | SOL | 1e9 |
+  | `XRP_SMALL`, `ALGO_SMALL`, `USDT_SMALL` | XRP, ALGO, USDT | 1e6 |
+  | `DOGE_SMALL` | DOGE | 1e4 |
+
+  Sacados del frontend de rollercoincalculator.app (`to_small`) **salvo SAT**:
+  ahí dice 1e8, pero con 1e8 el BTC rinde ~100× más USD por EH que todas las
+  demás monedas, que entre sí quedan en el mismo orden (los jugadores arbitran
+  entre monedas). Con 1e10 cuadra. Una moneda que no está en la tabla se
+  ignora.
+
+### 12.2 Precios
+
+- En USD. Primero la API pública de Binance (`data-api.binance.vision`, par
+  `XXXUSDT`); si falla, CoinGecko (`/simple/price`). Caché de **5 minutos**.
+- Fijos: **RLT = 1 USD** (así lo valora el juego), USDT = 1.
+- **RST y HMT no tienen precio** de mercado: se muestran solo en la moneda.
+- Si las dos fuentes fallan se sigue con los últimos precios; si nunca hubo, se
+  muestran solo cantidades.
+
+### 12.3 Fórmula
+
+Entradas: poder `P` (GH/s) y liga. No hay reparto: cada moneda se calcula
+como si pusieras **el 100% del poder en ella**, para compararlas entre sí.
+
+- **Liga**: por defecto la que corresponde a `P` (`min_power ≤ P ≤ tope`,
+  §6.3); se puede elegir otra a mano.
+
+```
+parte_c    = P / (red_c + P)
+bloque_c   = payout_c / divisor_c × parte_c
+día_c      = bloque_c × 86400 / duración_c
+semana_c   = día_c × 7
+mes_c      = día_c × 30
+usd_c      = cantidad × precio_c
+```
+
+**Supuesto**: `red_c` no incluye tu poder (estás calculando antes de minar
+ahí). Si ya minas en esa liga, tu poder está dos veces y el resultado queda un
+poco bajo: la diferencia es del orden de tu parte de la red, despreciable salvo
+que seas una parte grande. Con `red_c = 0` te llevas el bloque entero.
+
+**Mejor moneda**: la de mayor USD/día se marca. Las monedas sin precio no
+compiten.
+
+### 12.4 Contrato
+
+- `GET /api/mining`
+
+```jsonc
+{
+  "fetched_at": 1791900000,          // s, último dato de red bueno
+  "stale": false,                    // true: la API falló y es lo último que había
+  "prices_at": 1791900000,           // s; null si nunca hubo precios
+  "price_source": "binance",         // "binance" | "coingecko" | null
+  "prices": { "BTC": 83293.0, "RLT": 1.0, "USDT": 1.0 },
+  "leagues": [{
+    "level": 9, "title": "Gold III", "min_power": "3500000000",
+    "currencies": [{
+      "code": "BTC",
+      "network_power": "13883172743977",   // GH/s, string (§8)
+      "block_reward": 0.00002932,          // en la moneda (ya dividido)
+      "block_seconds": 611,
+      "users": 1814
+    }]
+  }]
+}
+```
+
+Errores: 503 si todavía no hay datos de red.
+
+Frontend: pestaña "Calculadora de minado" (`#minado`). El poder se puede traer
+de la sala (poder final) o del poder equivalente de la Calculadora Freon.
+Estado en `localStorage` (clave `roller-minado`), incluida la fila marcada
+de la tabla: esa moneda es la que usa la Calculadora Freon (§10.6).

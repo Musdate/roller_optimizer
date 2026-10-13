@@ -12,11 +12,12 @@ import PasteInventory from "./components/PasteInventory";
 import NavBar, { type View } from "./components/NavBar";
 import Estrategia12h from "./components/Estrategia12h";
 import CalculadoraFreon from "./components/CalculadoraFreon";
+import CalculadoraMinado from "./components/CalculadoraMinado";
 import Excavacion from "./components/Excavacion";
 import UndoToast from "./components/UndoToast";
 
 const VIEW_KEY = "roller-view";
-const VIEWS: View[] = ["optimizer", "freon", "estrategia12h", "excavacion"];
+const VIEWS: View[] = ["optimizer", "freon", "minado", "estrategia12h", "excavacion"];
 const BOOT_MSGS = [
   "Conectando con el servidor…",
   "Encendiendo los mineros…",
@@ -169,10 +170,12 @@ export default function App() {
         <Estrategia12h />
       ) : view === "freon" ? (
         <CalculadoraFreon />
+      ) : view === "minado" ? (
+        <CalculadoraMinado />
       ) : view === "excavacion" ? (
         <Excavacion />
       ) : (
-        <>
+        <div className="view-optimizer">
       <div className="row between" style={{ marginBottom: 12 }}>
         <h1 style={{ margin: 0 }}>Optimizador de sala</h1>
         <div className="row" style={{ gap: 6 }}>
@@ -224,7 +227,7 @@ export default function App() {
       </div>
 
       <UndoToast />
-        </>
+        </div>
       )}
     </div>
   );

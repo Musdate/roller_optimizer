@@ -20,12 +20,16 @@ from fastapi.staticfiles import StaticFiles
 
 from .catalog import RoomSyncError, catalog, fetch_user_room
 from .leagues import leagues
+from .mining import MiningUnavailable, mining
 from .models import (
     CatalogMinerOut,
     DiggingStateOut,
     LeagueOut,
     MergeOut,
     MergeTargetOut,
+    MiningCurrencyOut,
+    MiningLeagueOut,
+    MiningOut,
     OptimizeJobStarted,
     OptimizeJobStatus,
     OptimizeRequestBody,
@@ -111,6 +115,7 @@ def api_root() -> dict:
             "/api/room/import",
             "/api/inventory/parse",
             "/api/leagues",
+            "/api/mining",
             "/api/optimize",
             "/api/optimize/{job_id}",
             "/api/optimize/{job_id}/stop",
@@ -278,6 +283,30 @@ def get_leagues() -> list[LeagueOut]:
         )
         for r in leagues.all()
     ]
+
+
+@app.get("/api/mining", response_model=MiningOut)
+def get_mining() -> MiningOut:
+    """Red por liga y precios para la calculadora de minado (RULES.md §12)."""
+    try:
+        snap = mining.snapshot()
+    except MiningUnavailable as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return MiningOut(
+        **{k: v for k, v in snap.items() if k != "leagues"},
+        leagues=[
+            MiningLeagueOut(
+                level=r["level"],
+                title=r["title"],
+                min_power=str(r["min_power"]),
+                currencies=[
+                    MiningCurrencyOut(**{**c, "network_power": str(c["network_power"])})
+                    for c in r["currencies"]
+                ],
+            )
+            for r in snap["leagues"]
+        ],
+    )
 
 
 @app.get("/api/sunflower/digging/{land_id}", response_model=DiggingStateOut)
