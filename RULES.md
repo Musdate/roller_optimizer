@@ -970,10 +970,10 @@ a aplicarse a `bonus_efectivo` completo.
 
 La merma es **compuesta sobre el freon actual** (confirmado en el juego): al
 cumplirse cada `leak_time` se descuenta `merma%` de lo que queda en ese
-momento. **Recargar no reinicia el contador**: la primera merma llega en `h0`
-horas (lo que muestra el juego; `h0 = L` si la máquina estaba vacía o si no se
-ingresa) y después cada `L = leak_time`. Durante la ronda `k` (contando desde 0;
-la ronda 0 es `[0, h0)`, la ronda `k ≥ 1` es `[h0 + (k−1)·L, h0 + k·L)`) queda:
+momento, cada `L = leak_time`. Recargar no reinicia el contador del juego, pero
+la calculadora no lo pide: **supone que la próxima merma llega en un ciclo
+completo** (`L` horas desde ahora). Durante la ronda `k` (contando desde 0, la
+ronda `k` es `[k·L, (k+1)·L)`) queda:
 
 ```
 freon(k) = freon_efectivo × (1 − merma%)^k
@@ -989,9 +989,9 @@ Con **fecha de fin del evento** (`T` = horas restantes), el bonus del freon
 pasa a ser el promedio hasta esa fecha:
 
 ```
-freon_prom       = Σ_k freon(k) · |ronda_k ∩ [0, T)| / T
+freon_prom       = Σ_k freon(k) · |[k·L, (k+1)·L) ∩ [0, T)| / T
 bonus_freon_prom = freon_prom × 100 / 100           # bp, igual que §10.3
-freon_al_final   = freon(ronda en la que cae T)
+freon_al_final   = freon(floor(T / L))
 ```
 
 Ese promedio es el que entra en `bonus_efectivo` (§10.4). Sin fecha (o con la

@@ -35,9 +35,6 @@ interface Saved {
   hasFreon: boolean;
   /** Freon que muestra el juego antes de recargar. */
   freonNow: string;
-  /** Tiempo hasta la próxima merma (el contador no se reinicia al recargar). */
-  leakH: string;
-  leakM: string;
   /** Fin del evento de freon, valor de un input datetime-local (hora local). */
   deadline: string;
   /** Vida, fuerza y suerte de cada hámster; para el cálculo solo importa la suma. */
@@ -62,8 +59,6 @@ const EMPTY: Saved = {
   freon: "",
   hasFreon: false,
   freonNow: "",
-  leakH: "",
-  leakM: "",
   deadline: "",
   hams: [EMPTY_HAM],
   usage: "100",
@@ -142,8 +137,6 @@ export default function CalculadoraFreon() {
     freon,
     hasFreon,
     freonNow,
-    leakH,
-    leakM,
     deadline,
     hams,
     usage,
@@ -226,10 +219,6 @@ export default function CalculadoraFreon() {
   const deadlinePassed = hoursLeft !== null && hoursLeft <= 0;
 
   const current = hasFreon ? Number(freonNow) || 0 : 0;
-  const nextLeakH =
-    hasFreon && (leakH.trim() || leakM.trim())
-      ? (Number(leakH) || 0) + (Number(leakM) || 0) / 60
-      : null;
   const usagePct = usage.trim() === "" ? 100 : Number(usage) || 0;
   const r = useMemo(
     () =>
@@ -240,17 +229,16 @@ export default function CalculadoraFreon() {
         hoursLeft,
         usagePct,
         current,
-        nextLeakH,
       ),
-    [levels, hams, freon, hoursLeft, usagePct, current, nextLeakH],
+    [levels, hams, freon, hoursLeft, usagePct, current],
   );
   // RULES.md §10.6: con freon en la máquina se mide lo que suma la recarga.
   const base = useMemo(
     () =>
       hasFreon
-        ? computeFreon(levels, hams.map(hamSum), 0, hoursLeft, usagePct, current, nextLeakH)
+        ? computeFreon(levels, hams.map(hamSum), 0, hoursLeft, usagePct, current)
         : null,
-    [hasFreon, levels, hams, hoursLeft, usagePct, current, nextLeakH],
+    [hasFreon, levels, hams, hoursLeft, usagePct, current],
   );
 
   // El bonus del juego es aditivo (§3), así que el freon se suma sobre el
@@ -397,45 +385,16 @@ export default function CalculadoraFreon() {
             </label>
 
             {hasFreon && (
-              <div className="frn-powers">
-                <label className="stat frn-field">
-                  <span className="k">Freon actual</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={100}
-                    value={freonNow}
-                    onChange={(e) => setState((s) => ({ ...s, freonNow: e.target.value }))}
-                  />
-                </label>
-                <div className="stat frn-field">
-                  <span className="k">Próxima merma en</span>
-                  <div className="row frn-hm" style={{ flexWrap: "nowrap" }}>
-                    <input
-                      type="number"
-                      min={0}
-                      max={r.leakTimeH}
-                      step={1}
-                      placeholder={String(r.leakTimeH)}
-                      aria-label="Horas hasta la próxima merma"
-                      value={leakH}
-                      onChange={(e) => setState((s) => ({ ...s, leakH: e.target.value }))}
-                    />
-                    <span className="muted">h</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={59}
-                      step={1}
-                      placeholder="0"
-                      aria-label="Minutos hasta la próxima merma"
-                      value={leakM}
-                      onChange={(e) => setState((s) => ({ ...s, leakM: e.target.value }))}
-                    />
-                    <span className="muted">min</span>
-                  </div>
-                </div>
-              </div>
+              <label className="stat frn-field">
+                <span className="k">Freon actual</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={freonNow}
+                  onChange={(e) => setState((s) => ({ ...s, freonNow: e.target.value }))}
+                />
+              </label>
             )}
 
             <label className="stat frn-field">
