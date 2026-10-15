@@ -111,14 +111,6 @@ type Earn =
       days: number;
     };
 
-const END_FMT: Intl.DateTimeFormatOptions = {
-  weekday: "short",
-  day: "numeric",
-  month: "short",
-  hour: "2-digit",
-  minute: "2-digit",
-};
-
 function parseOrZero(num: string, unit: Unit): bigint {
   if (!num.trim()) return 0n;
   try {
@@ -543,16 +535,6 @@ export default function CalculadoraFreon() {
                 <span className="k">Bonus efectivo</span>
                 <span className="v">{bpToPct(r.effBonusBp)}</span>
               </div>
-              {r.freonEffective > 0 && (
-                <div className="stat">
-                  <span className="k">
-                    Freon hasta{r.freonEndsByEvent ? " (fin del evento)" : ""}
-                  </span>
-                  <span className="v">
-                    {new Date(now + r.freonLastsH * 3600000).toLocaleString("es", END_FMT)}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
 

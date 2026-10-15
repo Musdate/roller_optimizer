@@ -960,25 +960,21 @@ sigue corriendo igual) y solo el aporte de los hámsters es intermitente. Si
 resulta que el freon también se corta fuera del turno, el factor del ciclo pasa
 a aplicarse a `bonus_efectivo` completo.
 
-### 10.5 Merma, fin del evento y término del freon
+### 10.5 Merma y fin del evento
 
-**Supuesto (sin confirmar en la documentación oficial, que no dice sobre qué
-cantidad se aplica):** la merma es **lineal sobre lo cargado**. Al cumplirse
-cada `leak_time` se descuenta `merma% × freon_efectivo`, siempre la misma
-cantidad, así que durante la ronda `k` (contando desde 0) queda:
+La merma es **compuesta sobre el freon actual** (confirmado en el juego): al
+cumplirse cada `leak_time` se descuenta `merma%` de lo que queda en ese
+momento. Durante la ronda `k` (contando desde 0) queda:
 
 ```
-freon(k) = freon_efectivo × max(0, 1 − k · merma%)
+freon(k) = freon_efectivo × (1 − merma%)^k
 ```
 
-10.000 con −10% cada 6 h: 10.000 las primeras 6 h, 9.000 las siguientes, 8.000…
-y se acaba a las 10 rondas (60 h). El freon se agota al cumplirse
-`ceil(1 / merma%)` rondas, es decir a las `ceil(1 / merma%) × leak_time` horas
-de cargarlo.
-
-Se supone que el freon se carga **ahora**. **Fecha de término del freon** = la
-más temprana entre la de agotamiento y la de fin del evento (el evento quita el
-freon al terminar).
+5.000 con −10% cada 6 h: 5.000 las primeras 6 h, 4.500 las siguientes, 4.050,
+3.645… En el juego sí llega a cero, pero **no se sabe todavía cómo es la última
+etapa** (pendiente de confirmar). Mientras tanto se modela solo la caída
+compuesta, sin fecha de agotamiento: el freon dura hasta el fin del evento (el
+evento lo quita al terminar). Se supone que se carga **ahora**. Los cálculos usan el valor sin redondear; solo se muestra truncado.
 
 Con **fecha de fin del evento** (`T` = horas restantes, `L = leak_time`), el
 bonus del freon pasa a ser el promedio hasta esa fecha:

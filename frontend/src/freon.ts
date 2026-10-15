@@ -125,10 +125,6 @@ export interface FreonResult {
   /** Horas que quedan hasta el fin del evento; null sin fecha o ya pasada. */
   hoursLeft: number | null;
   freonAtEnd: number;
-  /** Horas desde ahora hasta que el freon se agota o termina el evento. */
-  freonLastsH: number;
-  /** El freon termina por el fin del evento y no por agotarse. */
-  freonEndsByEvent: boolean;
   /** Bonus mientras los hámsters trabajan (el pico). */
   peakBonusBp: number;
   /** Bonus promediado: hámsters sobre el ciclo, freon con la merma hasta el fin
@@ -217,26 +213,21 @@ export function computeFreon(
   const hamBonusEffBp = Math.round((hamIdealBp * usage) / 100);
   const hamsNeeded = slots * Math.ceil(cycleH / dutyTimeH);
 
-  // RULES.md §10.5: merma lineal sobre lo cargado, una vez por ronda.
-  const freonAtRound = (k: number) =>
-    freonEffective * Math.max(0, 1 - (k * leakPct) / 100);
-  const emptyRounds = Math.ceil(100 / leakPct);
-  const emptyH = emptyRounds * leakTimeH;
+  // RULES.md §10.5: merma compuesta sobre lo que queda, una vez por ronda.
+  const freonAtRound = (k: number) => freonEffective * (1 - leakPct / 100) ** k;
   const freonAfterDuty = Math.floor(freonAtRound(Math.floor(dutyTimeH / leakTimeH)));
 
   let freonAvg = freonEffective;
   let freonAtEnd = freonEffective;
   if (T !== null) {
     let sum = 0;
-    for (let k = 0; k < emptyRounds && k * leakTimeH < T; k++) {
+    for (let k = 0; k * leakTimeH < T; k++) {
       sum += freonAtRound(k) * (Math.min((k + 1) * leakTimeH, T) - k * leakTimeH);
     }
     freonAvg = sum / T;
     freonAtEnd = Math.floor(freonAtRound(Math.floor(T / leakTimeH)));
   }
   const freonAvgBonusBp = Math.round((freonAvg / FREON_PER_PCT) * 100);
-  const freonEndsByEvent = T !== null && T < emptyH;
-  const freonLastsH = freonEndsByEvent ? T : emptyH;
 
   return {
     upgrades,
@@ -252,8 +243,6 @@ export function computeFreon(
     freonAvgBonusBp,
     hoursLeft: T,
     freonAtEnd,
-    freonLastsH,
-    freonEndsByEvent,
     peakBonusBp: hamBonusBp + freonBonusBp,
     effBonusBp: hamBonusEffBp + freonAvgBonusBp,
     hamBonusEffBp,
