@@ -362,12 +362,6 @@
   font-weight: 400;
   color: var(--text);
 }
-.s12-checklist input {
-  width: auto;
-  padding: 0;
-  margin: 0;
-  accent-color: var(--accent);
-}
 @media (max-width: 520px) {
   .s12-checklist {
     grid-template-columns: 1fr;
