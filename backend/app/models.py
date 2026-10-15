@@ -213,6 +213,10 @@ class RoomImportResponse(BaseModel):
     room_slots: list[str | None]  # 96 celdas en el mismo orden que en el juego
 
 
+class FreonImportResponse(BaseModel):
+    freon: float  # freon cargado ahora en la máquina (RULES.md §10.3)
+
+
 class DigCellOut(BaseModel):
     x: int
     y: int

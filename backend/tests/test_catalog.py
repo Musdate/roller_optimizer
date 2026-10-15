@@ -6,6 +6,14 @@ from app import catalog as cat
 from app.catalog import _image_url
 
 
+def test_freon_desde_power_data():
+    # respuesta real: el juego mostraba 3.280,5 freon
+    data = {"miners": 16513000000, "freon": 5418745270.8}
+    assert cat.freon_from_power_data(data) == 3281.5
+    assert cat.freon_from_power_data({"miners": 0, "freon": 5}) == 0.0
+    assert cat.freon_from_power_data({"miners": 10, "freon": None}) == 0.0
+
+
 def test_image_url_strips_apostrophes():
     # el CDN usa el slug sin apóstrofo; la API a veces manda la comilla tipográfica
     assert _image_url("captain’s_fortune", 123) == (

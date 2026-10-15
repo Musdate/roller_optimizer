@@ -158,6 +158,12 @@ export function importRealRoom(
   return send(`${BASE}/room/import?${q}`).then((r) => json(r));
 }
 
+/** Freon que tiene ahora la máquina del usuario (RULES.md §10.3). */
+export function importFreon(userId: string): Promise<{ freon: number }> {
+  const q = new URLSearchParams({ userId });
+  return send(`${BASE}/freon/import?${q}`).then((r) => json(r));
+}
+
 export interface DiggingState {
   land_id: string;
   updated_at: number;

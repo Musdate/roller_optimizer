@@ -11,7 +11,7 @@ import {
   type Lvl,
   type ModKey,
 } from "../freon";
-import { fetchMining, type MiningData } from "../api";
+import { errMsg, fetchMining, importFreon, type MiningData } from "../api";
 import { FREON_EQ_KEY, leagueFor, perDayFor, readMiningPrefs } from "../mining";
 import "../freon.css";
 
@@ -100,6 +100,12 @@ function formatHours(h: number): string {
 
 const COIN_FMT = new Intl.NumberFormat("es", { maximumSignificantDigits: 4 });
 
+/** Freon con un decimal solo si lo tiene: 5000 -> "5.000", 1719.5 -> "1.719,5". */
+function fmtFreon(x: number): string {
+  const [int, dec] = x.toFixed(1).split(".");
+  return groupDigits(int) + (dec === "0" ? "" : `,${dec}`);
+}
+
 function fmtUsd(x: number): string {
   if (x !== 0 && Math.abs(x) < 0.01) return `$${COIN_FMT.format(x)}`;
   return `$${x.toLocaleString("es", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -165,6 +171,8 @@ export default function CalculadoraFreon() {
   }, [miningPrefs.coin]);
 
   const roomList = useStore(selectRoomList);
+  const userId = useStore((s) => s.rollercoinUserId).trim();
+  const [freonImportError, setFreonImportError] = useState<string | null>(null);
   const roomTotals = useMemo(
     () => totalsFor(roomList.map((it) => ({ item: it, count: it.inRoom ?? 0 }))),
     [roomList],
@@ -204,6 +212,18 @@ export default function CalculadoraFreon() {
       finalNum: f.num,
       finalUnit: f.unit,
     }));
+    // RULES.md §10.3: el freon que tiene ahora la máquina, si hay ID guardado.
+    if (!userId) return;
+    setFreonImportError(null);
+    importFreon(userId)
+      .then(({ freon }) =>
+        setState((s) => ({
+          ...s,
+          hasFreon: freon > 0,
+          freonNow: freon > 0 ? String(freon) : "",
+        })),
+      )
+      .catch((e) => setFreonImportError(`No se pudo traer el freon: ${errMsg(e)}`));
   }
 
   const raw = useMemo(() => parseOrZero(powerNum, powerUnit), [powerNum, powerUnit]);
@@ -313,12 +333,19 @@ export default function CalculadoraFreon() {
               title={
                 roomList.length === 0
                   ? "No tienes mineros puestos en la sala"
-                  : "Copia el poder bruto y final de la sala"
+                  : userId
+                    ? "Copia el poder bruto y final de la sala, y el freon que tiene ahora tu máquina"
+                    : "Copia el poder bruto y final de la sala (con tu ID de RollerCoin también trae el freon)"
               }
             >
               importar de sala
             </button>
           </div>
+          {freonImportError && (
+            <div className="warn-box" style={{ marginBottom: 10 }}>
+              {freonImportError}
+            </div>
+          )}
 
           <div className="frn-fields">
             <div className="frn-powers">
@@ -397,16 +424,34 @@ export default function CalculadoraFreon() {
               </label>
             )}
 
-            <label className="stat frn-field">
-              <span className="k">{hasFreon ? "Recarga" : "Freon cargado"}</span>
-              <input
-                type="number"
-                min={0}
-                step={100}
-                value={freon}
-                onChange={(e) => setState((s) => ({ ...s, freon: e.target.value }))}
-              />
-            </label>
+            <div className="stat frn-field">
+              <label className="k" htmlFor="frn-recarga">
+                {hasFreon ? "Recarga" : "Freon cargado"}
+              </label>
+              <div className="frn-inbtn">
+                <input
+                  id="frn-recarga"
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={freon}
+                  onChange={(e) => setState((s) => ({ ...s, freon: e.target.value }))}
+                />
+                <button
+                  className="tiny"
+                  onClick={() => setState((s) => ({ ...s, freon: String(r.maxRecharge) }))}
+                  title={`Lo máximo que cabe: ${fmtFreon(r.maxRecharge)}`}
+                >
+                  max
+                </button>
+              </div>
+              {r.freonCapped && (
+                <div className="warn-box frn-cap">
+                  La máquina solo almacena {groupDigits(String(r.freonLimit))} Freon. (usando{" "}
+                  {fmtFreon(r.freonEffective)})
+                </div>
+              )}
+            </div>
 
             <label className="stat frn-field">
               <span className="k">
@@ -645,12 +690,6 @@ export default function CalculadoraFreon() {
             </div>
           )}
 
-          {r.freonCapped && (
-            <div className="warn-box" style={{ marginTop: 10 }}>
-              La máquina solo almacena {groupDigits(String(r.freonLimit))} Freon: lo que
-              cargues de más se pierde.
-            </div>
-          )}
         </div>
       </div>
 

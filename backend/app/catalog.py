@@ -383,6 +383,38 @@ class RoomSyncError(Exception):
     """Fallo al consultar la sala real de un usuario en la API de RollerCoin."""
 
 
+_POWER_DATA_URL = "https://rollercoin.com/api/profile/user-power-data/{id}"
+
+
+def freon_from_power_data(data: dict) -> float:
+    """Freon cargado a partir de `user-power-data` (RULES.md §10.3): la API da
+    el poder que aporta, y 100 freon = 1% sobre el poder bruto."""
+    miners = float(data.get("miners") or 0)
+    freon_power = float(data.get("freon") or 0)
+    if miners <= 0 or freon_power <= 0:
+        return 0.0
+    return round(freon_power / miners * 10000, 1)
+
+
+def fetch_user_freon(user_id: str) -> float:
+    """Freon que tiene ahora la máquina de `user_id`, desde la API pública de
+    RollerCoin (no la de rollercoincalculator: esa no lo trae)."""
+    try:
+        with httpx.Client(timeout=20, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            r = client.get(_POWER_DATA_URL.format(id=user_id))
+    except httpx.HTTPError as exc:
+        raise RoomSyncError(
+            "No se pudo conectar con RollerCoin. Inténtalo de nuevo en unos minutos."
+        ) from exc
+    try:
+        body = r.json()
+    except ValueError:
+        body = {}
+    if r.status_code != 200 or not body.get("success") or not isinstance(body.get("data"), dict):
+        raise RoomSyncError("No se encontró el usuario. Verifica que el ID de usuario sea correcto.")
+    return freon_from_power_data(body["data"])
+
+
 # Sala 1 (la única con vista visual hoy) = 12 racks de 4 estantes x 2 celdas
 # c/u = 96 celdas, igual que `ROOM1_CELLS` del frontend (frontend/src/store.ts).
 _ROOM1_SHELVES_PER_RACK = 4

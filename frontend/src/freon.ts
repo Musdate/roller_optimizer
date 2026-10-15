@@ -119,6 +119,8 @@ export interface FreonResult {
   freonEffective: number;
   freonBonusBp: number;
   freonCapped: boolean;
+  /** Mayor recarga que cabe sin pasar el límite (RULES.md §10.3). */
+  maxRecharge: number;
   /** Freon promedio hasta el fin del evento (= freonEffective sin fecha). */
   freonAvg: number;
   freonAvgBonusBp: number;
@@ -180,11 +182,21 @@ export function computeFreon(
   const hamBonusBp = hams.slice(0, slots).reduce((acc, s) => acc + s * bpPerStat, 0);
 
   const extra = FREON_EXTRA_PCT[levels.freonEfficiency];
-  const loaded = Math.max(0, Math.floor(freonLoaded));
-  const current = Math.max(0, Math.floor(freonCurrent));
-  // RULES.md §10.3: la recarga se suma a lo que ya hay; el extra es solo de la recarga.
-  const withExtra = current + Math.floor(loaded * (1 + extra / 100));
-  const freonEffective = Math.min(withExtra, tier.freonLimit);
+  // RULES.md §10.3: el freon va con un decimal; se cuenta en décimas enteras
+  // para no arrastrar errores de punto flotante (3280.5 * 10 = 32804.999…).
+  const tenths = (x: number) => Math.max(0, Math.floor(x * 10 + 1e-6));
+  const charged = (n: number) => Math.floor(n * (1 + extra / 100) + 1e-6);
+  const loaded = tenths(freonLoaded);
+  const current = tenths(freonCurrent);
+  const limit = tier.freonLimit * 10;
+  // La recarga se suma a lo que ya hay; el extra es solo de la recarga.
+  const withExtra = current + charged(loaded);
+  const freonEffective = Math.min(withExtra, limit) / 10;
+  const room = Math.max(0, limit - current);
+  let maxTenths = Math.floor(room / (1 + extra / 100));
+  while (charged(maxTenths + 1) <= room) maxTenths++;
+  while (maxTenths > 0 && charged(maxTenths) > room) maxTenths--;
+  const maxRecharge = maxTenths / 10;
   const freonBonusBp = Math.round((freonEffective / FREON_PER_PCT) * 100);
 
   const leakPct = LEAK_PCT[levels.leakAmount];
@@ -242,7 +254,8 @@ export function computeFreon(
     hamBonusBp,
     freonEffective,
     freonBonusBp,
-    freonCapped: withExtra > tier.freonLimit,
+    freonCapped: withExtra > limit,
+    maxRecharge,
     freonAvg,
     freonAvgBonusBp,
     hoursLeft: T,

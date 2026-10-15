@@ -18,12 +18,13 @@ from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .catalog import RoomSyncError, catalog, fetch_user_room
+from .catalog import RoomSyncError, catalog, fetch_user_freon, fetch_user_room
 from .leagues import leagues
 from .mining import MiningUnavailable, mining
 from .models import (
     CatalogMinerOut,
     DiggingStateOut,
+    FreonImportResponse,
     LeagueOut,
     MergeOut,
     MergeTargetOut,
@@ -113,6 +114,7 @@ def api_root() -> dict:
             "/api/catalog/refresh",
             "/api/catalog/check",
             "/api/room/import",
+            "/api/freon/import",
             "/api/inventory/parse",
             "/api/leagues",
             "/api/mining",
@@ -247,6 +249,15 @@ def import_real_room(user_id: str = Query(alias="userId", min_length=1, max_leng
         total_cells=sum(i.width * i.count for i in items),
         room_slots=room["room_slots"],
     )
+
+
+@app.get("/api/freon/import", response_model=FreonImportResponse)
+def import_freon(user_id: str = Query(alias="userId", min_length=1, max_length=64)) -> FreonImportResponse:
+    """Freon que tiene ahora la máquina del usuario (RULES.md §10.3)."""
+    try:
+        return FreonImportResponse(freon=fetch_user_freon(user_id))
+    except RoomSyncError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @app.post("/api/inventory/parse", response_model=ParseInventoryResponse)

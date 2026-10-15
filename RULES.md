@@ -867,7 +867,7 @@ los seis módulos, 0…18) y fija cuánto Freon se puede almacenar:
 que se expresa en bp igual que el resto de la app (§3):
 
 ```
-freon_efectivo = min( freon_actual + floor(recarga × (1 + extra%)), límite_del_nivel )
+freon_efectivo = min( freon_actual + floor₀,₁(recarga × (1 + extra%)), límite_del_nivel )
 bonus_freon_bp = freon_efectivo × 100 / 100        # 100 freon = 1% = 100 bp
 bonus_ham_bp   = Σ stat_i × bp_por_stat            # los N hámsters de más stat,
                                                    # N = slots de Ham Platforms
@@ -879,7 +879,23 @@ F = P · (10000 + bonus_pico_bp) / 10000            # misma fórmula que §3
 `freon_actual` es lo que muestra el juego (ya trae su extra) y la recarga se
 **suma**; Freon Efficiency aplica **solo a la recarga**. Sin el check,
 `freon_actual = 0` y la recarga es todo lo cargado. Lo que pase del límite se
-pierde.
+pierde. El freon admite **un decimal** (el juego muestra p. ej. 3.280,5):
+freon actual y recarga se truncan a 0,1, y `floor₀,₁` es truncar a 0,1. El
+botón **max** pone la mayor recarga, en pasos de 0,1, que cabe:
+`max { R : freon_actual + floor₀,₁(R × (1 + extra%)) ≤ límite }`.
+
+**Importar `freon_actual`.** "importar de sala" también lo trae si hay ID de
+RollerCoin guardado en el optimizador (si es mayor que 0, marca el check y lo
+llena; si es 0, lo desmarca). `GET https://rollercoin.com/api/profile/user-power-data/{id}`
+(público, sin sesión) devuelve el **poder** que aporta el freon, no la
+cantidad. Como 100 freon = 1% sobre el poder bruto:
+
+```
+freon_actual = data.freon / data.miners × 10000      # redondeado a 0,1
+```
+
+Comparado con el juego da ±1 freon (p. ej. 3.281,5 contra 3.280,5); se acepta.
+Con `miners = 0` da 0.
 
 Ese es el **pico**. Lo que rinde a lo largo del día sale de §10.4.
 

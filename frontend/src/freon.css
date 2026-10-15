@@ -165,6 +165,16 @@
 }
 .frn-field input { width: 100%; }
 .frn-check { gap: 6px; font-size: 13px; cursor: pointer; }
+.frn-cap { margin-top: 4px; }
+/* Botón dentro del input, al final. */
+.frn-inbtn { position: relative; }
+.frn-field .frn-inbtn input { padding-right: 52px; }
+.frn-inbtn button {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+}
 
 /* --- resultado --- */
 
