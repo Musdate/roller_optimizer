@@ -867,13 +867,19 @@ los seis módulos, 0…18) y fija cuánto Freon se puede almacenar:
 que se expresa en bp igual que el resto de la app (§3):
 
 ```
-freon_efectivo = min( floor(freon_cargado × (1 + extra%)), límite_del_nivel )
+freon_efectivo = min( freon_actual + floor(recarga × (1 + extra%)), límite_del_nivel )
 bonus_freon_bp = freon_efectivo × 100 / 100        # 100 freon = 1% = 100 bp
 bonus_ham_bp   = Σ stat_i × bp_por_stat            # los N hámsters de más stat,
                                                    # N = slots de Ham Platforms
 bonus_pico_bp  = bonus_freon_bp + bonus_ham_bp   # mientras el turno está activo
 F = P · (10000 + bonus_pico_bp) / 10000            # misma fórmula que §3
 ```
+
+**Recarga.** Si la máquina ya tiene freon (un check en la vista),
+`freon_actual` es lo que muestra el juego (ya trae su extra) y la recarga se
+**suma**; Freon Efficiency aplica **solo a la recarga**. Sin el check,
+`freon_actual = 0` y la recarga es todo lo cargado. Lo que pase del límite se
+pierde.
 
 Ese es el **pico**. Lo que rinde a lo largo del día sale de §10.4.
 
@@ -964,7 +970,10 @@ a aplicarse a `bonus_efectivo` completo.
 
 La merma es **compuesta sobre el freon actual** (confirmado en el juego): al
 cumplirse cada `leak_time` se descuenta `merma%` de lo que queda en ese
-momento. Durante la ronda `k` (contando desde 0) queda:
+momento. **Recargar no reinicia el contador**: la primera merma llega en `h0`
+horas (lo que muestra el juego; `h0 = L` si la máquina estaba vacía o si no se
+ingresa) y después cada `L = leak_time`. Durante la ronda `k` (contando desde 0;
+la ronda 0 es `[0, h0)`, la ronda `k ≥ 1` es `[h0 + (k−1)·L, h0 + k·L)`) queda:
 
 ```
 freon(k) = freon_efectivo × (1 − merma%)^k
@@ -974,15 +983,15 @@ freon(k) = freon_efectivo × (1 − merma%)^k
 3.645… En el juego sí llega a cero, pero **no se sabe todavía cómo es la última
 etapa** (pendiente de confirmar). Mientras tanto se modela solo la caída
 compuesta, sin fecha de agotamiento: el freon dura hasta el fin del evento (el
-evento lo quita al terminar). Se supone que se carga **ahora**. Los cálculos usan el valor sin redondear; solo se muestra truncado.
+evento lo quita al terminar). La recarga se hace **ahora**. Los cálculos usan el valor sin redondear; solo se muestra truncado.
 
-Con **fecha de fin del evento** (`T` = horas restantes, `L = leak_time`), el
-bonus del freon pasa a ser el promedio hasta esa fecha:
+Con **fecha de fin del evento** (`T` = horas restantes), el bonus del freon
+pasa a ser el promedio hasta esa fecha:
 
 ```
-freon_prom       = Σ_k freon(k) · |[k·L, (k+1)·L) ∩ [0, T)| / T
+freon_prom       = Σ_k freon(k) · |ronda_k ∩ [0, T)| / T
 bonus_freon_prom = freon_prom × 100 / 100           # bp, igual que §10.3
-freon_al_final   = freon(floor(T / L))
+freon_al_final   = freon(ronda en la que cae T)
 ```
 
 Ese promedio es el que entra en `bonus_efectivo` (§10.4). Sin fecha (o con la
@@ -1011,6 +1020,18 @@ usd   = extra × precio
   liga para los dos poderes (el freon no cambia de liga).
 - Sin moneda marcada se pide marcar una; sin fecha de fin (o ya pasada), se
   pide la fecha. Si la moneda no se mina en esa liga, se avisa.
+
+**Con freon en la máquina** (§10.3) y una recarga mayor que 0 se agrega una
+segunda tarjeta, **Ganancia de la recarga**: lo que suma la recarga sola. Su
+base es el poder equivalente sin recargar (sala + hámsters + `freon_actual` con
+su merma):
+
+```
+extra_recarga = (día(P_eq con recarga) − día(P_eq sin recarga)) × T / 24
+```
+
+La primera tarjeta, **Ganancia total del freon**, y "Ganancia real" siguen
+comparando contra `poder_final_sala` (todo lo que aporta la máquina).
 
 ---
 

@@ -31,6 +31,13 @@ interface Saved {
   finalNum: string;
   finalUnit: Unit;
   freon: string;
+  /** La máquina ya tiene freon: `freon` pasa a ser la recarga (RULES.md §10.3). */
+  hasFreon: boolean;
+  /** Freon que muestra el juego antes de recargar. */
+  freonNow: string;
+  /** Tiempo hasta la próxima merma (el contador no se reinicia al recargar). */
+  leakH: string;
+  leakM: string;
   /** Fin del evento de freon, valor de un input datetime-local (hora local). */
   deadline: string;
   /** Vida, fuerza y suerte de cada hámster; para el cálculo solo importa la suma. */
@@ -53,6 +60,10 @@ const EMPTY: Saved = {
   finalNum: "",
   finalUnit: "PH",
   freon: "",
+  hasFreon: false,
+  freonNow: "",
+  leakH: "",
+  leakM: "",
   deadline: "",
   hams: [EMPTY_HAM],
   usage: "100",
@@ -123,8 +134,21 @@ function parseOrZero(num: string, unit: Unit): bigint {
 
 export default function CalculadoraFreon() {
   const [state, setState] = useState<Saved>(load);
-  const { powerNum, powerUnit, finalNum, finalUnit, freon, deadline, hams, usage, levels } =
-    state;
+  const {
+    powerNum,
+    powerUnit,
+    finalNum,
+    finalUnit,
+    freon,
+    hasFreon,
+    freonNow,
+    leakH,
+    leakM,
+    deadline,
+    hams,
+    usage,
+    levels,
+  } = state;
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -201,6 +225,12 @@ export default function CalculadoraFreon() {
   const hoursLeft = Number.isFinite(deadlineMs) ? (deadlineMs - now) / 3600000 : null;
   const deadlinePassed = hoursLeft !== null && hoursLeft <= 0;
 
+  const current = hasFreon ? Number(freonNow) || 0 : 0;
+  const nextLeakH =
+    hasFreon && (leakH.trim() || leakM.trim())
+      ? (Number(leakH) || 0) + (Number(leakM) || 0) / 60
+      : null;
+  const usagePct = usage.trim() === "" ? 100 : Number(usage) || 0;
   const r = useMemo(
     () =>
       computeFreon(
@@ -208,9 +238,19 @@ export default function CalculadoraFreon() {
         hams.map(hamSum),
         Number(freon) || 0,
         hoursLeft,
-        usage.trim() === "" ? 100 : Number(usage) || 0,
+        usagePct,
+        current,
+        nextLeakH,
       ),
-    [levels, hams, freon, hoursLeft, usage],
+    [levels, hams, freon, hoursLeft, usagePct, current, nextLeakH],
+  );
+  // RULES.md §10.6: con freon en la máquina se mide lo que suma la recarga.
+  const base = useMemo(
+    () =>
+      hasFreon
+        ? computeFreon(levels, hams.map(hamSum), 0, hoursLeft, usagePct, current, nextLeakH)
+        : null,
+    [hasFreon, levels, hams, hoursLeft, usagePct, current, nextLeakH],
   );
 
   // El bonus del juego es aditivo (§3), así que el freon se suma sobre el
@@ -218,11 +258,13 @@ export default function CalculadoraFreon() {
   const addOn = (bp: number) => (raw * BigInt(bp)) / 10000n;
   const peak = roomFinal + addOn(r.peakBonusBp);
   const effective = roomFinal + addOn(r.effBonusBp);
+  const baseline = base ? roomFinal + addOn(base.effBonusBp) : roomFinal;
   const gain = effective - roomFinal;
+  const hasRecharge = hasFreon && (Number(freon) || 0) > 0;
   const effText = formatPower(effective);
 
-  // RULES.md §10.6: lo que se mina de más con la máquina hasta el fin del evento.
-  const earn = ((): Earn => {
+  // RULES.md §10.6: lo que se mina de más hasta el fin del evento frente a `basePower`.
+  const earnFor = (basePower: bigint): Earn => {
     const coin = miningPrefs.coin;
     if (!coin) return { msg: "Selecciona una moneda en la Calculadora de minado" };
     if (r.hoursLeft === null) return { msg: "Pon la fecha de fin del evento" };
@@ -234,7 +276,7 @@ export default function CalculadoraFreon() {
     const cur = league?.currencies.find((c) => c.code === coin);
     if (!league || !cur) return { msg: `${coin} no se mina en ${league?.title ?? "esa liga"}` };
     const dayEff = perDayFor(cur, Number(effective));
-    const dayNow = perDayFor(cur, Number(roomFinal));
+    const dayNow = perDayFor(cur, Number(basePower));
     const days = r.hoursLeft / 24;
     const extra = (dayEff - dayNow) * days;
     const price = mining.prices[coin];
@@ -247,7 +289,9 @@ export default function CalculadoraFreon() {
       dayNow,
       days,
     };
-  })();
+  };
+  const earn = earnFor(roomFinal);
+  const earnRe = hasRecharge ? earnFor(baseline) : null;
 
   useEffect(() => {
     try {
@@ -343,8 +387,59 @@ export default function CalculadoraFreon() {
               </label>
             </div>
 
+            <label className="row frn-check">
+              <input
+                type="checkbox"
+                checked={hasFreon}
+                onChange={(e) => setState((s) => ({ ...s, hasFreon: e.target.checked }))}
+              />
+              La máquina ya tiene freon
+            </label>
+
+            {hasFreon && (
+              <div className="frn-powers">
+                <label className="stat frn-field">
+                  <span className="k">Freon actual</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={100}
+                    value={freonNow}
+                    onChange={(e) => setState((s) => ({ ...s, freonNow: e.target.value }))}
+                  />
+                </label>
+                <div className="stat frn-field">
+                  <span className="k">Próxima merma en</span>
+                  <div className="row frn-hm" style={{ flexWrap: "nowrap" }}>
+                    <input
+                      type="number"
+                      min={0}
+                      max={r.leakTimeH}
+                      step={1}
+                      placeholder={String(r.leakTimeH)}
+                      aria-label="Horas hasta la próxima merma"
+                      value={leakH}
+                      onChange={(e) => setState((s) => ({ ...s, leakH: e.target.value }))}
+                    />
+                    <span className="muted">h</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={59}
+                      step={1}
+                      placeholder="0"
+                      aria-label="Minutos hasta la próxima merma"
+                      value={leakM}
+                      onChange={(e) => setState((s) => ({ ...s, leakM: e.target.value }))}
+                    />
+                    <span className="muted">min</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <label className="stat frn-field">
-              <span className="k">Freon cargado</span>
+              <span className="k">{hasFreon ? "Recarga" : "Freon cargado"}</span>
               <input
                 type="number"
                 min={0}
@@ -449,77 +544,123 @@ export default function CalculadoraFreon() {
           </div>
 
           <div className="frn-result">
-            <div className="frn-hero">
-              <span className="k">
-                Ganancia hasta el fin del evento{" "}
-                <span className="frn-info" tabIndex={0} aria-label="Cómo se calcula">
-                  i
-                  <span className="frn-info-tip" role="tooltip">
-                    Lo que minas de más con la máquina activa, en la moneda marcada en la
-                    Calculadora de minado. Se usa el poder equivalente ({effText}): el poder
-                    fijo que mina lo mismo que tu ciclo real.{" "}
-                    {r.slots === 0 ? (
-                      <>Hámsters: sin slots (sube Ham Platforms), no aportan.</>
-                    ) : (
-                      <>
-                        {r.hamRotating ? (
+            <div className="frn-heroes">
+              <div className="frn-hero">
+                <span className="k">
+                  Ganancia total del freon{" "}
+                  <span className="frn-info" tabIndex={0} aria-label="Cómo se calcula">
+                    i
+                    <span className="frn-info-tip" role="tooltip">
+                      Lo que minas de más con la máquina activa hasta el fin del evento, en
+                      la moneda marcada en la Calculadora de minado. Se usa el poder
+                      equivalente ({effText}): el poder fijo que mina lo mismo que tu ciclo
+                      real.{" "}
+                      {r.slots === 0 ? (
+                        <>Hámsters: sin slots (sube Ham Platforms), no aportan.</>
+                      ) : (
+                        <>
+                          {r.hamRotating ? (
+                            <>
+                              Hámsters: rotación ideal de {r.hamCount} en {r.slots} slots, los
+                              de más stat primero, cada uno como mucho{" "}
+                              {(r.hamActiveRatio * 100).toFixed(0)}% del tiempo ({r.dutyTimeH} h
+                              + 24 h de descanso)
+                            </>
+                          ) : (
+                            <>
+                              Hámsters {bpToPct(r.hamBonusBp)} durante {r.dutyTimeH} h + 24 h de
+                              descanso = {(r.hamActiveRatio * 100).toFixed(0)}%{" "}
+                              {r.hoursLeft !== null
+                                ? "del tiempo que queda del evento"
+                                : "del ciclo"}
+                            </>
+                          )}
+                          , con uso real {r.usagePct}% → {bpToPct(r.hamBonusEffBp)}.
+                        </>
+                      )}{" "}
+                      {r.hoursLeft !== null ? (
+                        <>
+                          Freon {bpToPct(r.freonBonusBp)}{" "}
+                          {hasFreon ? "tras recargar" : "al cargar"}, que con la merma
+                          (−{r.leakPct}% cada {r.leakTimeH} h) promedia{" "}
+                          {bpToPct(r.freonAvgBonusBp)} hasta el fin del evento.
+                        </>
+                      ) : (
+                        <>Freon {bpToPct(r.freonBonusBp)} continuo, sin merma (no hay fecha de fin).</>
+                      )}{" "}
+                      {"coin" in earn ? (
+                        <>
+                          En {earn.league}, con ese poder minas{" "}
+                          {COIN_FMT.format(earn.dayEff)} {earn.coin}/día; con tu poder final
+                          actual ({formatPower(roomFinal)}), {COIN_FMT.format(earn.dayNow)}{" "}
+                          {earn.coin}/día. La diferencia por los{" "}
+                          {earn.days.toLocaleString("es", { maximumFractionDigits: 1 })} días que
+                          quedan del evento da {COIN_FMT.format(earn.extra)} {earn.coin}.
+                        </>
+                      ) : (
+                        <>
+                          Se calcula con la red de esa moneda: lo que minas por día con el poder
+                          equivalente menos lo que minas con tu poder final actual, por los días
+                          que quedan del evento.
+                        </>
+                      )}{" "}
+                      La liga es la elegida en la Calculadora de minado (o la de tu poder
+                      final), y la red es una foto de ahora.
+                    </span>
+                  </span>
+                </span>
+                {"msg" in earn ? (
+                  <span className="muted frn-earn-msg">{earn.msg}</span>
+                ) : (
+                  <>
+                    <span className="v">
+                      +{COIN_FMT.format(earn.extra)} {earn.coin}
+                    </span>
+                    {earn.usd !== null && <span className="muted">≈ {fmtUsd(earn.usd)}</span>}
+                  </>
+                )}
+              </div>
+              {earnRe && (
+                <div className="frn-hero">
+                  <span className="k">
+                    Ganancia de la recarga{" "}
+                    <span className="frn-info" tabIndex={0} aria-label="Cómo se calcula">
+                      i
+                      <span className="frn-info-tip" role="tooltip">
+                        Lo que suma la recarga sola, comparado con dejar el freon que ya tienes
+                        ({groupDigits(String(Math.floor(current)))}) hasta el fin del evento.
+                        Hámsters iguales en los dos casos.{" "}
+                        {"coin" in earnRe ? (
                           <>
-                            Hámsters: rotación ideal de {r.hamCount} en {r.slots} slots, los
-                            de más stat primero, cada uno como mucho{" "}
-                            {(r.hamActiveRatio * 100).toFixed(0)}% del tiempo ({r.dutyTimeH} h
-                            + 24 h de descanso)
+                            Con la recarga, poder equivalente {effText}:{" "}
+                            {COIN_FMT.format(earnRe.dayEff)} {earnRe.coin}/día; sin recargar,{" "}
+                            {formatPower(baseline)}: {COIN_FMT.format(earnRe.dayNow)}{" "}
+                            {earnRe.coin}/día. La diferencia por los{" "}
+                            {earnRe.days.toLocaleString("es", { maximumFractionDigits: 1 })}{" "}
+                            días que quedan da {COIN_FMT.format(earnRe.extra)} {earnRe.coin}.
                           </>
                         ) : (
                           <>
-                            Hámsters {bpToPct(r.hamBonusBp)} durante {r.dutyTimeH} h + 24 h de
-                            descanso = {(r.hamActiveRatio * 100).toFixed(0)}%{" "}
-                            {r.hoursLeft !== null
-                              ? "del tiempo que queda del evento"
-                              : "del ciclo"}
+                            Se calcula igual que la ganancia total, pero contra el poder
+                            equivalente sin recargar.
                           </>
                         )}
-                        , con uso real {r.usagePct}% → {bpToPct(r.hamBonusEffBp)}.
-                      </>
-                    )}{" "}
-                    {r.hoursLeft !== null ? (
-                      <>
-                        Freon {bpToPct(r.freonBonusBp)} al cargar, que con la merma
-                        (−{r.leakPct}% cada {r.leakTimeH} h) promedia{" "}
-                        {bpToPct(r.freonAvgBonusBp)} hasta el fin del evento.
-                      </>
-                    ) : (
-                      <>Freon {bpToPct(r.freonBonusBp)} continuo, sin merma (no hay fecha de fin).</>
-                    )}{" "}
-                    {"coin" in earn ? (
-                      <>
-                        En {earn.league}, con ese poder minas{" "}
-                        {COIN_FMT.format(earn.dayEff)} {earn.coin}/día; con tu poder final
-                        actual ({formatPower(roomFinal)}), {COIN_FMT.format(earn.dayNow)}{" "}
-                        {earn.coin}/día. La diferencia por los{" "}
-                        {earn.days.toLocaleString("es", { maximumFractionDigits: 1 })} días que
-                        quedan del evento da {COIN_FMT.format(earn.extra)} {earn.coin}.
-                      </>
-                    ) : (
-                      <>
-                        Se calcula con la red de esa moneda: lo que minas por día con el poder
-                        equivalente menos lo que minas con tu poder final actual, por los días
-                        que quedan del evento.
-                      </>
-                    )}{" "}
-                    La liga es la elegida en la Calculadora de minado (o la de tu poder
-                    final), y la red es una foto de ahora.
+                      </span>
+                    </span>
                   </span>
-                </span>
-              </span>
-              {"msg" in earn ? (
-                <span className="muted frn-earn-msg">{earn.msg}</span>
-              ) : (
-                <>
-                  <span className="v">
-                    +{COIN_FMT.format(earn.extra)} {earn.coin}
-                  </span>
-                  {earn.usd !== null && <span className="muted">≈ {fmtUsd(earn.usd)}</span>}
-                </>
+                  {"msg" in earnRe ? (
+                    <span className="muted frn-earn-msg">{earnRe.msg}</span>
+                  ) : (
+                    <>
+                      <span className="v">
+                        +{COIN_FMT.format(earnRe.extra)} {earnRe.coin}
+                      </span>
+                      {earnRe.usd !== null && (
+                        <span className="muted">≈ {fmtUsd(earnRe.usd)}</span>
+                      )}
+                    </>
+                  )}
+                </div>
               )}
             </div>
             <div className="stat-row">

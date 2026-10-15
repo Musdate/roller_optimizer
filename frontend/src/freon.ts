@@ -162,6 +162,8 @@ export function computeFreon(
   freonLoaded: number,
   hoursLeft: number | null = null,
   usagePct = 100,
+  freonCurrent = 0,
+  nextLeakH: number | null = null,
 ): FreonResult {
   const upgrades = MODULES.reduce((acc, m) => acc + levels[m.key], 0);
   const rltSpent = MODULES.reduce(
@@ -180,7 +182,9 @@ export function computeFreon(
 
   const extra = FREON_EXTRA_PCT[levels.freonEfficiency];
   const loaded = Math.max(0, Math.floor(freonLoaded));
-  const withExtra = Math.floor(loaded * (1 + extra / 100));
+  const current = Math.max(0, Math.floor(freonCurrent));
+  // RULES.md §10.3: la recarga se suma a lo que ya hay; el extra es solo de la recarga.
+  const withExtra = current + Math.floor(loaded * (1 + extra / 100));
   const freonEffective = Math.min(withExtra, tier.freonLimit);
   const freonBonusBp = Math.round((freonEffective / FREON_PER_PCT) * 100);
 
@@ -213,19 +217,24 @@ export function computeFreon(
   const hamBonusEffBp = Math.round((hamIdealBp * usage) / 100);
   const hamsNeeded = slots * Math.ceil(cycleH / dutyTimeH);
 
-  // RULES.md §10.5: merma compuesta sobre lo que queda, una vez por ronda.
+  // RULES.md §10.5: merma compuesta sobre lo que queda, una vez por ronda. La
+  // recarga no reinicia el contador: la primera merma llega en h0.
   const freonAtRound = (k: number) => freonEffective * (1 - leakPct / 100) ** k;
-  const freonAfterDuty = Math.floor(freonAtRound(Math.floor(dutyTimeH / leakTimeH)));
+  const h0 =
+    nextLeakH !== null && nextLeakH > 0 ? Math.min(nextLeakH, leakTimeH) : leakTimeH;
+  const roundStart = (k: number) => (k === 0 ? 0 : h0 + (k - 1) * leakTimeH);
+  const roundAt = (t: number) => (t < h0 ? 0 : 1 + Math.floor((t - h0) / leakTimeH));
+  const freonAfterDuty = Math.floor(freonAtRound(roundAt(dutyTimeH)));
 
   let freonAvg = freonEffective;
   let freonAtEnd = freonEffective;
   if (T !== null) {
     let sum = 0;
-    for (let k = 0; k * leakTimeH < T; k++) {
-      sum += freonAtRound(k) * (Math.min((k + 1) * leakTimeH, T) - k * leakTimeH);
+    for (let k = 0; roundStart(k) < T; k++) {
+      sum += freonAtRound(k) * (Math.min(roundStart(k + 1), T) - roundStart(k));
     }
     freonAvg = sum / T;
-    freonAtEnd = Math.floor(freonAtRound(Math.floor(T / leakTimeH)));
+    freonAtEnd = Math.floor(freonAtRound(roundAt(T)));
   }
   const freonAvgBonusBp = Math.round((freonAvg / FREON_PER_PCT) * 100);
 

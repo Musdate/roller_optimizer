@@ -164,6 +164,9 @@
   font-size: 12px;
 }
 .frn-field input { width: 100%; }
+.frn-hm { gap: 6px; }
+.frn-hm input { flex: 1; min-width: 0; }
+.frn-check { gap: 6px; font-size: 13px; cursor: pointer; }
 
 /* --- resultado --- */
 
@@ -175,6 +178,11 @@
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
+}
+.frn-heroes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 .frn-hero {
   display: flex;
