@@ -169,9 +169,9 @@
 
 .frn-result {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-start;
   gap: 16px;
-  flex-wrap: wrap;
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border);
@@ -179,7 +179,6 @@
 .frn-hero {
   display: flex;
   flex-direction: column;
-  align-self: stretch;
   gap: 2px;
   padding: 8px 16px;
   border-radius: 10px;
