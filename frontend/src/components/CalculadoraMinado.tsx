@@ -335,12 +335,7 @@ export default function CalculadoraMinado() {
           </div>
 
           <p className="muted mn-note">
-            Red actualizada {fmtAgo(data?.fetched_at ?? null, now)}; precios de{" "}
-            {data?.price_source === "binance"
-              ? "Binance"
-              : data?.price_source === "coingecko"
-                ? "CoinGecko"
-                : "ninguna fuente"}{" "}
+            Red actualizada {fmtAgo(data?.fetched_at ?? null, now)}; precios actualizados{" "}
             {fmtAgo(data?.prices_at ?? null, now)}. RLT se cuenta a 1 USD; RST y HMT no
             tienen precio. El poder de la red cambia bloque a bloque: es una estimación
             con la foto de ahora, suponiendo que tu poder todavía no está en esa red.

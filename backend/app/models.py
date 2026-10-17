@@ -166,7 +166,6 @@ class MiningOut(BaseModel):
     fetched_at: int | None
     stale: bool
     prices_at: int | None
-    price_source: str | None
     prices: dict[str, float]
     leagues: list[MiningLeagueOut]
 

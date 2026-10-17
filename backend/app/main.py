@@ -13,12 +13,13 @@ from dataclasses import dataclass, field, replace
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .catalog import RoomSyncError, catalog, fetch_user_freon, fetch_user_room
+from .images import KEY_RE, images
 from .leagues import leagues
 from .mining import MiningUnavailable, mining
 from .models import (
@@ -44,7 +45,7 @@ from .models import (
 )
 from .optimizer import LockedOverCapError, MinerModel, OptimizeRequest, OptimizeResult, optimize
 from .paste import parse_inventory
-from .sunflower import SunflowerError, digging_state
+from .sunflower import SunflowerError, digging_state, seed
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,7 +57,18 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Optimizador Sala RollerCoin", version="0.1.0", lifespan=lifespan)
+# Sin /docs ni /openapi.json: los docstrings nombran las fuentes (RULES.md §8.2).
+app = FastAPI(
+    title="Optimizador Sala RollerCoin",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+images.add_source(lambda: [r.get("image", "") for r in catalog.all()])
+images.add_source(lambda: [r["image"] for r in leagues.all()])
+images.add_source(lambda: seed.icons.values())
 
 # El solver de OR-Tools puede tardar hasta `time_limit_s` (5 min desde el
 # frontend) y suele usar varios núcleos por sí solo -- en un VPS chico, unas
@@ -106,7 +118,6 @@ app.add_middleware(
 def api_root() -> dict:
     return {
         "service": "Optimizador Sala RollerCoin — API",
-        "docs": "/docs",
         "endpoints": [
             "/api/health",
             "/api/catalog",
@@ -164,7 +175,7 @@ def get_catalog(
             power=str(r["power"]),
             bonus_bp=r["bonus_bp"],
             width=r["width"],
-            image=r["image"],
+            image=images.public(r["image"]),
         )
         for r in rows
     ]
@@ -191,7 +202,7 @@ def get_catalog_by_ids(ids: str = Query(default="")) -> list[CatalogMinerOut]:
             power=str(r["power"]),
             bonus_bp=r["bonus_bp"],
             width=r["width"],
-            image=r["image"],
+            image=images.public(r["image"]),
         )
         for r in rows
     ]
@@ -239,7 +250,7 @@ def import_real_room(user_id: str = Query(alias="userId", min_length=1, max_leng
             power=str(r["power"]),
             bonus_bp=r["bonus_bp"],
             width=r["width"],
-            image=r["image"],
+            image=images.public(r["image"]),
             count=r["count"],
         )
         for r in room["items"]
@@ -273,7 +284,7 @@ def parse_pasted_inventory(body: ParseInventoryBody) -> ParseInventoryResponse:
                 bonus_bp=it.bonus_bp,
                 width=it.width,
                 quantity=it.quantity,
-                image=it.image,
+                image=images.public(it.image),
                 matched=it.matched,
             )
             for it in res.items
@@ -290,7 +301,7 @@ def get_leagues() -> list[LeagueOut]:
             title=r["title"],
             min_power=str(r["min_power"]),
             max_power=None if r["max_power"] is None else str(r["max_power"]),
-            image=r["image"],
+            image=images.public(r["image"]),
         )
         for r in leagues.all()
     ]
@@ -304,7 +315,7 @@ def get_mining() -> MiningOut:
     except MiningUnavailable as exc:
         raise HTTPException(503, str(exc)) from exc
     return MiningOut(
-        **{k: v for k, v in snap.items() if k != "leagues"},
+        **{k: v for k, v in snap.items() if k not in ("leagues", "price_source")},
         leagues=[
             MiningLeagueOut(
                 level=r["level"],
@@ -324,9 +335,21 @@ def get_mining() -> MiningOut:
 def get_digging(land_id: str = PathParam(pattern=r"^\d{1,20}$")) -> dict:
     """Patrones del día y hoyos excavados de una granja de Sunflower Land (RULES.md §11)."""
     try:
-        return digging_state(land_id)
+        state = digging_state(land_id)
     except SunflowerError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
+    state["icons"] = {k: images.public(v) for k, v in state["icons"].items()}
+    return state
+
+
+@app.get("/api/img/{key}")
+def get_image(key: str) -> Response:
+    """Imagen externa servida por el backend (RULES.md §8.2)."""
+    got = images.get(key) if KEY_RE.match(key) else None
+    if not got:
+        raise HTTPException(404, "Imagen no encontrada.")
+    content, media = got
+    return Response(content, media_type=media, headers={"Cache-Control": "public, max-age=2592000, immutable"})
 
 
 @app.post("/api/optimize", response_model=OptimizeJobStarted)
@@ -451,7 +474,7 @@ def _to_response(
     row_by_id: dict[str, dict],
 ) -> OptimizeResponse:
     def image(mid: str) -> str:
-        return row_by_id.get(mid, {}).get("image", "")
+        return images.public(row_by_id.get(mid, {}).get("image", ""))
 
     return OptimizeResponse(
         status=res.status,

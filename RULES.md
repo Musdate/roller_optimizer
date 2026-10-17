@@ -493,7 +493,7 @@ Campos usados de cada item:
 | `power` | **poder bruto** del minero, en **`GH/s`** (entero exacto). Ej: `10k Crust` nivel 2 = `2000000` → 2.000.000 GH/s = 2 PH/s. |
 | `percent` | **bonus en bp**. `fracción = percent / 10000`. Ej: `14 → 0.14%`, `6000 → 60%`, `20000 → 200%`. |
 | `width` | celdas que ocupa (1 o 2) |
-| `fileName`, `imageVersion` | imagen: `cdn.rollercoincalculator.app/miners/<fileName>.png?v=<version>` |
+| `fileName`, `imageVersion` | imagen: `cdn.rollercoincalculator.app/miners/<fileName>.png?v=<version>` (al cliente le llega como `/api/img/…`, §8.2) |
 
 ⚠️ **Comillas en `name`**: para algunos mineros la API mezcla la comilla recta y
 la tipográfica entre niveles (`King's Legacy` nivel base, `King’s Legacy` el
@@ -767,6 +767,7 @@ despreciable (`~ 1e-10` relativo).
 
   404 si el trabajo no existe (expiró: se guardan 10 min después de terminar).
 - `POST /api/optimize/{job_id}/stop` — detiene la búsqueda (§5.10). Idempotente.
+- `GET  /api/img/{clave}` — imagen externa servida por el backend (§8.2).
 
 Resultado (`result`):
 
@@ -805,6 +806,22 @@ Números que pueden exceder `2^53` viajan como **string**. El frontend usa
   entre cada una). Un número sin sufijo se interpreta como **GH**. Valores por
   debajo de `0.001` de la unidad elegida se muestran como `~0 GH/s` (el valor
   exacto en GH/s va en el tooltip).
+
+### 8.2 Orígenes ocultos
+
+El navegador nunca ve de dónde salen los datos: solo pide a `/api`.
+
+- **Imágenes**: todo campo `image` (catálogo, sala importada, pegado, ligas,
+  resultado) y los `icons` de Excavación (§11.7) viajan como `/api/img/<clave>.<ext>`, con `clave` = primeros 24 hex
+  del SHA-256 de la URL real. El backend solo sirve URLs que él mismo emitió
+  (catálogo, ligas e iconos del seed de Excavación, o registradas al responder): no es un proxy
+  abierto. Clave desconocida → 404 (el frontend muestra el respaldo). Se
+  cachean en `backend/.cache/img/` y se mandan con caché larga (la URL real
+  ya trae la versión).
+- Las URLs externas guardadas por clientes viejos se reemplazan solas al
+  resincronizar el inventario con `/api/catalog/by-ids`.
+- `/docs`, `/redoc` y `/openapi.json` están desactivados.
+- La UI no nombra la fuente de los precios (§12.2).
 
 ---
 
@@ -1230,10 +1247,11 @@ capítulo) con las excavaciones que quedan.
 - Si ninguna excavación es de hoy (UTC), el tablero guardado puede ser de ayer:
   los hoyos viejos se descartan y se marca `stale` (los patrones pueden no ser
   los de hoy hasta que el jugador entre al juego).
-- Iconos: `ITEM_DETAILS[ítem].image` del juego. Se **enlazan** (repo en GitHub o
-  `sunflower-land.com/game-assets`), nunca se copian: parte son del Sunnyside
-  Asset Pack, que es pago y no se puede redistribuir. Si uno no carga, la celda
-  muestra la abreviatura.
+- Iconos: `ITEM_DETAILS[ítem].image` del juego (repo en GitHub o
+  `sunflower-land.com/game-assets`). No se versionan en el repo (parte son del
+  Sunnyside Asset Pack, que es pago), pero el backend los sirve por
+  `/api/img` como el resto de las imágenes (§8.2; decisión del dueño del
+  proyecto). Si uno no carga, la celda muestra la abreviatura.
 - El jugador también puede marcar casillas a mano (por si el API tarda en
   reflejar la última excavación). Lo manual se superpone a lo del API.
 
@@ -1251,8 +1269,8 @@ capítulo) con las excavaciones que quedan.
   "holes": [{ "x": 6, "y": 5, "item": "Camel Bone", "tool": "Sand Shovel", "dug_at": 1790731300984 }],
   "stale": false,                       // true: nada excavado hoy (§11.6)
   "digs": { "max": 25, "used": 11, "extra": 0, "left": 14 },
-  "icons": { "Otter Pebble": "https://raw.githubusercontent.com/…/otter_pebble.webp",
-             "Crab": "https://sunflower-land.com/game-assets/…/crab.png" },
+  "icons": { "Otter Pebble": "/api/img/3f2a….webp",   // §8.2
+             "Crab": "/api/img/9c41….png" },
   "shovels": 5, "drills": 0,            // en el inventario
   "budget": 5                           // min(digs.left, shovels); digs.left con Ancient Shovel
 }
@@ -1313,6 +1331,7 @@ poder equivalente de la Calculadora Freon (§10.4).
 - **RST y HMT no tienen precio** de mercado: se muestran solo en la moneda.
 - Si las dos fuentes fallan se sigue con los últimos precios; si nunca hubo, se
   muestran solo cantidades.
+- La fuente usada no se expone al cliente ni se muestra (§8.2).
 
 ### 12.3 Fórmula
 
@@ -1348,7 +1367,6 @@ compiten.
   "fetched_at": 1791900000,          // s, último dato de red bueno
   "stale": false,                    // true: la API falló y es lo último que había
   "prices_at": 1791900000,           // s; null si nunca hubo precios
-  "price_source": "binance",         // "binance" | "coingecko" | null
   "prices": { "BTC": 83293.0, "RLT": 1.0, "USDT": 1.0 },
   "leagues": [{
     "level": 9, "title": "Gold III", "min_power": "3500000000",

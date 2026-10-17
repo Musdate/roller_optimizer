@@ -206,7 +206,6 @@ export interface MiningData {
   fetched_at: number | null;
   stale: boolean;
   prices_at: number | null;
-  price_source: string | null;
   prices: Record<string, number>;
   leagues: MiningLeague[];
 }
